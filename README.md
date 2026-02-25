@@ -2,6 +2,11 @@
 
 Production-ready, cross-platform script to install and uninstall dependencies for **Nutanix Kubernetes Provisioning (NKP)** on Linux and macOS. One script handles both install and uninstall (with `--uninstall`).
 
+**Quick start (run from GitHub):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/lTSPV75BRO/NKP_Scripts/main/install-nkp-deps.sh | bash
+```
+
 ## What it installs
 
 | Component | Purpose |
@@ -25,6 +30,34 @@ After installation, the script verifies each component and reports versions. Opt
 - **macOS**: [Homebrew](https://brew.sh) (for Docker); curl is built-in
 
 ## Usage
+
+### Run directly from GitHub
+
+You can run the installer without cloning the repo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lTSPV75BRO/NKP_Scripts/main/install-nkp-deps.sh | bash
+```
+
+Pass options by adding them after `--`:
+
+```bash
+# Install, skip Docker, dry-run
+curl -fsSL https://raw.githubusercontent.com/lTSPV75BRO/NKP_Scripts/main/install-nkp-deps.sh | bash -s -- --skip-docker --dry-run
+
+# Install with NKP URL (non-interactive)
+curl -fsSL https://raw.githubusercontent.com/lTSPV75BRO/NKP_Scripts/main/install-nkp-deps.sh | bash -s -- --nkp-url "https://download.nutanix.com/..."
+
+# Uninstall (prompts for which components)
+curl -fsSL https://raw.githubusercontent.com/lTSPV75BRO/NKP_Scripts/main/install-nkp-deps.sh | bash -s -- --uninstall
+
+# Verify only (no install)
+curl -fsSL https://raw.githubusercontent.com/lTSPV75BRO/NKP_Scripts/main/install-nkp-deps.sh | bash -s -- --verify-only
+```
+
+> **Note:** Piping from the internet runs the script in your environment. Use only from trusted sources. Prefer downloading and inspecting the script when in doubt.
+
+### Run from a local clone
 
 ```bash
 # Make executable (once)
@@ -118,6 +151,12 @@ All operations are logged to stderr and to a log file. The default log file is i
 
 If the script adds your user to the `docker` group, **log out and back in** (or run `newgrp docker`) so you can run `docker` without `sudo`.
 
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for how to report issues, suggest changes, and submit pull requests.
+
 ## License
 
-Use and modify as needed for your environment. Nutanix NKP is subject to Nutanix licensing and support terms.
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for the full text. You may use, modify, and distribute it under those terms.
+
+Nutanix NKP (the CLI and platform installed by this script) is subject to [Nutanix](https://www.nutanix.com) licensing and support terms; this repo only provides the installer/uninstaller scripts.
