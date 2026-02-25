@@ -39,9 +39,12 @@ You can run the installer without cloning the repo:
 curl -fsSL https://raw.githubusercontent.com/lTSPV75BRO/NKP_Scripts/main/install-nkp-deps.sh | bash
 ```
 
-Pass options by adding them after `--`:
+To pass options to the script, use **`bash -s --`** (note the space and double dash), then the script options:
 
 ```bash
+# Show help (must use "bash -s -- --help", not "bash -s --help")
+curl -fsSL https://raw.githubusercontent.com/lTSPV75BRO/NKP_Scripts/main/install-nkp-deps.sh | bash -s -- --help
+
 # Install, skip Docker, dry-run
 curl -fsSL https://raw.githubusercontent.com/lTSPV75BRO/NKP_Scripts/main/install-nkp-deps.sh | bash -s -- --skip-docker --dry-run
 

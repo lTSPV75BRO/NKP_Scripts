@@ -722,6 +722,10 @@ do_uninstall_docker() {
         log_warn "Uninstall Docker manually for this distro."
         ;;
     esac
+    # Docker from packages usually lives in /usr/bin; if still in PATH, may be from another install
+    if command -v docker &>/dev/null; then
+      log_info "Docker is still available at $(command -v docker); remove that binary or re-run package remove if needed."
+    fi
   fi
   log_info "Docker uninstall completed."
 }
