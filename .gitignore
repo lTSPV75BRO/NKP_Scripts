@@ -1,0 +1,15 @@
+# Logs from install/uninstall script
+*.log
+install-nkp-deps.log
+uninstall-nkp-deps.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
