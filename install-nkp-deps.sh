@@ -272,8 +272,9 @@ install_docker_linux() {
       run sudo install -m 0755 -d /etc/apt/keyrings
       local docker_repo_id codename
       docker_repo_id=$( (. /etc/os-release && echo "$ID") || echo "ubuntu")
-      # Remove any existing Docker list to avoid Signed-By conflict (e.g. docker.gpg vs docker.asc)
-      run sudo rm -f /etc/apt/sources.list.d/docker.list
+      # Remove all Docker list and key files to avoid Signed-By conflict (docker.gpg vs docker.asc)
+      run sudo rm -f /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.list.* 2>/dev/null || true
+      run sudo rm -f /etc/apt/keyrings/docker.gpg /etc/apt/keyrings/docker.asc 2>/dev/null || true
       run curl -fsSL "https://download.docker.com/linux/${docker_repo_id}/gpg" | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
       run sudo chmod a+r /etc/apt/keyrings/docker.gpg
       codename=$(lsb_release -cs 2>/dev/null || (. /etc/os-release && echo "${VERSION_CODENAME:-unknown}"))
@@ -737,7 +738,11 @@ do_uninstall_kubectl() {
     [[ "$INSTALL_USE_SUDO" == true ]] && run sudo rm -f "$INSTALL_BIN_DIR/kubectl" || run rm -f "$INSTALL_BIN_DIR/kubectl"
     log_info "Removed $INSTALL_BIN_DIR/kubectl"
   else
-    log_info "kubectl not found at $INSTALL_BIN_DIR/kubectl (may be from another install)."
+    if command -v kubectl &>/dev/null; then
+      log_info "kubectl not at $INSTALL_BIN_DIR (found at $(command -v kubectl)); remove manually if desired."
+    else
+      log_info "kubectl not found at $INSTALL_BIN_DIR/kubectl (may be from another install)."
+    fi
   fi
 }
 
@@ -748,7 +753,11 @@ do_uninstall_helm() {
     [[ "$INSTALL_USE_SUDO" == true ]] && run sudo rm -f "$INSTALL_BIN_DIR/helm" || run rm -f "$INSTALL_BIN_DIR/helm"
     log_info "Removed $INSTALL_BIN_DIR/helm"
   else
-    log_info "Helm not found at $INSTALL_BIN_DIR/helm (may be from another install)."
+    if command -v helm &>/dev/null; then
+      log_info "Helm not at $INSTALL_BIN_DIR (found at $(command -v helm)); remove manually if desired."
+    else
+      log_info "Helm not found at $INSTALL_BIN_DIR/helm (may be from another install)."
+    fi
   fi
 }
 
@@ -765,7 +774,11 @@ do_uninstall_nkp() {
     [[ "$INSTALL_USE_SUDO" == true ]] && run sudo rm -f "$INSTALL_BIN_DIR/nkp" || run rm -f "$INSTALL_BIN_DIR/nkp"
     log_info "Removed $INSTALL_BIN_DIR/nkp"
   else
-    log_info "NKP not found at $INSTALL_BIN_DIR/nkp (may be from another install)."
+    if command -v nkp &>/dev/null; then
+      log_info "NKP not at $INSTALL_BIN_DIR (found at $(command -v nkp)); remove manually if desired."
+    else
+      log_info "NKP not found at $INSTALL_BIN_DIR/nkp (may be from another install)."
+    fi
   fi
 }
 
