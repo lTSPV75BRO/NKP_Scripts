@@ -23,7 +23,7 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE="${TMPDIR:-/tmp}/install-nkp-deps.$$.log"
 readonly KUBECTL_STABLE_URL="https://dl.k8s.io/release/stable.txt"
 readonly KUBECTL_BASE_URL="https://dl.k8s.io/release"
-readonly HELM_INSTALL_SCRIPT="https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3"
+readonly HELM_INSTALL_SCRIPT="https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4"
 
 # Minimum versions (optional checks; set empty to skip)
 MIN_DOCKER_VERSION="20.10"
@@ -120,10 +120,26 @@ detect_os() {
   # Prefer /opt/homebrew/bin on macOS (ARM) so script-installed tools take precedence over Homebrew
   if [[ "$OS_TYPE" == darwin ]] && [[ -d /opt/homebrew/bin ]]; then
     INSTALL_BIN_DIR="/opt/homebrew/bin"
+    INSTALL_USE_SUDO=false
   else
     INSTALL_BIN_DIR="/usr/local/bin"
+    INSTALL_USE_SUDO=true
   fi
   log_info "Detected: OS_TYPE=$OS_TYPE OS_DISTRO=$OS_DISTRO ARCH=$ARCH INSTALL_BIN_DIR=$INSTALL_BIN_DIR"
+}
+
+# Install a binary into INSTALL_BIN_DIR. On macOS /opt/homebrew/bin we do not use sudo
+# so ownership stays with the user and brew doctor is not affected.
+install_binary_to_bindir() {
+  local src="$1"
+  local dest_name="$2"
+  if [[ "$INSTALL_USE_SUDO" == true ]]; then
+    run sudo install -d -o 0 -g 0 -m 0755 "$INSTALL_BIN_DIR" 2>/dev/null || true
+    run sudo install -o 0 -g 0 -m 0755 "$src" "$INSTALL_BIN_DIR/$dest_name"
+  else
+    run mkdir -p "$INSTALL_BIN_DIR"
+    run install -m 0755 "$src" "$INSTALL_BIN_DIR/$dest_name"
+  fi
 }
 
 # --- Version comparison (semver-style) ---
@@ -243,6 +259,11 @@ install_prereqs() {
 }
 
 # --- Docker installation ---
+# Linux: repo-based install for Debian/Ubuntu and RHEL/Fedora (recommended for production).
+#        Unknown distros use the official get.docker.com script.
+# macOS: Homebrew (Docker Desktop) or manual download.
+readonly DOCKER_GET_SCRIPT_URL="https://get.docker.com"
+
 install_docker_linux() {
   case "$OS_DISTRO" in
     debian)
@@ -266,14 +287,17 @@ install_docker_linux() {
         run sudo yum install -y docker-ce docker-ce-cli containerd.io
       ;;
     *)
-      log_error "Docker installation not automated for this distro. Install Docker manually."
-      exit 1
+      log_info "Using Docker official install script (get.docker.com) for this distro."
+      run bash -c "curl -fsSL $DOCKER_GET_SCRIPT_URL | sudo sh -s --" || {
+        log_error "Docker install failed. Install manually: https://docs.docker.com/engine/install/"
+        exit 1
+      }
       ;;
   esac
   if [[ "$DRY_RUN" != true ]]; then
     if command -v systemctl &>/dev/null; then
-      run sudo systemctl start docker || true
-      run sudo systemctl enable docker || true
+      run sudo systemctl start docker 2>/dev/null || true
+      run sudo systemctl enable docker 2>/dev/null || true
     fi
     if [[ -n "${SUDO_USER:-}" ]]; then
       run sudo usermod -aG docker "$SUDO_USER" 2>/dev/null || true
@@ -288,10 +312,15 @@ install_docker_darwin() {
     log_info "Docker already installed."
     return 0
   fi
-  log_info "On macOS, install Docker Desktop from https://www.docker.com/products/docker-desktop/ or run: brew install --cask docker"
-  run brew install --cask docker 2>/dev/null || {
-    log_warn "brew install --cask docker failed or skipped. Please install Docker Desktop manually."
-  }
+  if command -v brew &>/dev/null; then
+    log_info "Installing Docker Desktop via Homebrew (brew install --cask docker)."
+    run brew install --cask docker 2>/dev/null || {
+      log_warn "brew install --cask docker failed. Install manually: https://www.docker.com/products/docker-desktop/"
+    }
+  else
+    log_error "Homebrew not found. Install Docker Desktop manually: https://www.docker.com/products/docker-desktop/"
+    log_info "Or install Homebrew (https://brew.sh) then run: brew install --cask docker"
+  fi
 }
 
 install_docker() {
@@ -342,8 +371,7 @@ install_kubectl() {
   tmpdir=$(mktemp -d)
   run curl -sSLo "$tmpdir/kubectl" "$url"
   run chmod +x "$tmpdir/kubectl"
-  run sudo install -d -o 0 -g 0 -m 0755 "$INSTALL_BIN_DIR" 2>/dev/null || true
-  run sudo install -o 0 -g 0 -m 0755 "$tmpdir/kubectl" "$INSTALL_BIN_DIR/kubectl"
+  install_binary_to_bindir "$tmpdir/kubectl" "kubectl"
   rm -rf "$tmpdir"
   log_info "kubectl installed: $version -> $INSTALL_BIN_DIR/kubectl"
 }
@@ -362,23 +390,39 @@ install_helm() {
   fi
   log_info "Installing Helm..."
   if [[ "$DRY_RUN" == true ]]; then
-    log_info "[DRY-RUN] Would run: curl ... | bash"
+    log_info "[DRY-RUN] Would run: curl get-helm-4 | bash or download binary"
     return 0
   fi
-  run env HELM_INSTALL_DIR="$INSTALL_BIN_DIR" bash -c "curl -fsSL $HELM_INSTALL_SCRIPT | bash" || {
-    # Fallback: download binary directly
-    local version
-    version=$(curl -sL https://api.github.com/repos/helm/helm/releases/latest | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
-    [[ -z "$version" ]] && version="3.13.0"
-    local url="https://get.helm.sh/helm-v${version}-${OS_TYPE}-${ARCH}.tar.gz"
-    local tmpdir
-    tmpdir=$(mktemp -d)
-    run curl -sSLo "$tmpdir/helm.tar.gz" "$url"
-    run tar -xzf "$tmpdir/helm.tar.gz" -C "$tmpdir" "${OS_TYPE}-${ARCH}/helm"
-    run sudo install -d -o 0 -g 0 -m 0755 "$INSTALL_BIN_DIR" 2>/dev/null || true
-    run sudo install -o 0 -g 0 -m 0755 "$tmpdir/${OS_TYPE}-${ARCH}/helm" "$INSTALL_BIN_DIR/helm"
-    rm -rf "$tmpdir"
-  }
+  if ! command -v helm &>/dev/null; then
+    # On macOS with /opt/homebrew/bin we install without sudo; get-helm-4 may use sudo, so use binary fallback.
+    if [[ "$INSTALL_USE_SUDO" == false ]]; then
+      log_info "Installing Helm via binary download (no sudo for $INSTALL_BIN_DIR)."
+      local version
+      version=$(curl -sL https://api.github.com/repos/helm/helm/releases/latest | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+      [[ -z "$version" ]] && version="3.13.0"
+      local url="https://get.helm.sh/helm-v${version}-${OS_TYPE}-${ARCH}.tar.gz"
+      local tmpdir
+      tmpdir=$(mktemp -d)
+      run curl -sSLo "$tmpdir/helm.tar.gz" "$url"
+      run tar -xzf "$tmpdir/helm.tar.gz" -C "$tmpdir" "${OS_TYPE}-${ARCH}/helm"
+      install_binary_to_bindir "$tmpdir/${OS_TYPE}-${ARCH}/helm" "helm"
+      rm -rf "$tmpdir"
+    else
+      log_info "Installing Helm via get-helm-4 script..."
+      run env HELM_INSTALL_DIR="$INSTALL_BIN_DIR" bash -c "curl -fsSL $HELM_INSTALL_SCRIPT | bash" || {
+        local version
+        version=$(curl -sL https://api.github.com/repos/helm/helm/releases/latest | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+        [[ -z "$version" ]] && version="3.13.0"
+        local url="https://get.helm.sh/helm-v${version}-${OS_TYPE}-${ARCH}.tar.gz"
+        local tmpdir
+        tmpdir=$(mktemp -d)
+        run curl -sSLo "$tmpdir/helm.tar.gz" "$url"
+        run tar -xzf "$tmpdir/helm.tar.gz" -C "$tmpdir" "${OS_TYPE}-${ARCH}/helm"
+        install_binary_to_bindir "$tmpdir/${OS_TYPE}-${ARCH}/helm" "helm"
+        rm -rf "$tmpdir"
+      }
+    fi
+  fi
 }
 
 # --- NKP CLI installation ---
@@ -452,16 +496,14 @@ install_nkp() {
     fi
     if [[ -n "$nkp_bin" ]]; then
       run chmod +x "$nkp_bin"
-      run sudo install -d -o 0 -g 0 -m 0755 "$INSTALL_BIN_DIR" 2>/dev/null || true
-      run sudo install -o 0 -g 0 -m 0755 "$nkp_bin" "$INSTALL_BIN_DIR/nkp"
+      install_binary_to_bindir "$nkp_bin" "nkp"
     else
       log_error "Could not find nkp binary in archive (expected e.g. nkp_v2.17.0_${OS_TYPE}_${ARCH}/nkp)."
       exit 1
     fi
   elif file "$tmpdir/$filename" | grep -q executable; then
     run chmod +x "$tmpdir/$filename"
-    run sudo install -d -o 0 -g 0 -m 0755 "$INSTALL_BIN_DIR" 2>/dev/null || true
-    run sudo install -o 0 -g 0 -m 0755 "$tmpdir/$filename" "$INSTALL_BIN_DIR/nkp"
+    install_binary_to_bindir "$tmpdir/$filename" "nkp"
   else
     rm -rf "$tmpdir"
     log_error "Unrecognized download format. Expecting tarball or binary."
@@ -471,34 +513,64 @@ install_nkp() {
   log_info "NKP installed to $INSTALL_BIN_DIR/nkp"
 }
 
-# --- Shell completion ---
+# --- Shell completion and alias (k=kubectl) ---
 configure_completion() {
   [[ "$DRY_RUN" == true ]] && return 0
-  local shell_rc
-  case "$(basename "${SHELL:-bash}")" in
+  local shell_name shell_rc
+  shell_name=$(basename "${SHELL:-bash}")
+  case "$shell_name" in
     bash)  shell_rc="${HOME}/.bashrc" ;;
     zsh)   shell_rc="${HOME}/.zshrc" ;;
     *)     shell_rc="" ;;
   esac
   if [[ -z "$shell_rc" || ! -w "$shell_rc" ]]; then return 0; fi
 
-  for cmd in kubectl helm; do
-    if ! command -v "$cmd" &>/dev/null; then continue; fi
-    if grep -q "completion.*$cmd" "$shell_rc" 2>/dev/null; then continue; fi
-    if [[ "$cmd" == kubectl ]]; then
-      echo "" >> "$shell_rc"
-      echo "# kubectl completion" >> "$shell_rc"
+  if grep -q "NKP Scripts - completions and alias" "$shell_rc" 2>/dev/null; then
+    log_info "Completions and alias already present in $shell_rc"
+    return 0
+  fi
+
+  echo "" >> "$shell_rc"
+  echo "# --- NKP Scripts - completions and alias (added by install-nkp-deps.sh) ---" >> "$shell_rc"
+
+  if [[ "$shell_name" == bash ]]; then
+    # kubectl + alias k=kubectl
+    if command -v kubectl &>/dev/null; then
       echo "if command -v kubectl &>/dev/null; then source <(kubectl completion bash 2>/dev/null); fi" >> "$shell_rc"
       echo "alias k=kubectl" >> "$shell_rc"
       echo "complete -o default -F __start_kubectl k 2>/dev/null || true" >> "$shell_rc"
     fi
-    if [[ "$cmd" == helm ]]; then
-      echo "" >> "$shell_rc"
-      echo "# Helm completion" >> "$shell_rc"
+    # helm
+    if command -v helm &>/dev/null; then
       echo "if command -v helm &>/dev/null; then source <(helm completion bash 2>/dev/null); fi" >> "$shell_rc"
     fi
-  done
-  log_info "Shell completion configured in $shell_rc"
+    # docker
+    if command -v docker &>/dev/null; then
+      echo "if command -v docker &>/dev/null; then source <(docker completion bash 2>/dev/null); fi" >> "$shell_rc"
+    fi
+    # nkp (if completion available)
+    if command -v nkp &>/dev/null && nkp completion bash &>/dev/null; then
+      echo "if command -v nkp &>/dev/null; then source <(nkp completion bash 2>/dev/null); fi" >> "$shell_rc"
+    fi
+  else
+    # zsh
+    if command -v kubectl &>/dev/null; then
+      echo "if command -v kubectl &>/dev/null; then source <(kubectl completion zsh 2>/dev/null); fi" >> "$shell_rc"
+      echo "alias k=kubectl" >> "$shell_rc"
+    fi
+    if command -v helm &>/dev/null; then
+      echo "if command -v helm &>/dev/null; then source <(helm completion zsh 2>/dev/null); fi" >> "$shell_rc"
+    fi
+    if command -v docker &>/dev/null; then
+      echo "if command -v docker &>/dev/null; then source <(docker completion zsh 2>/dev/null); fi" >> "$shell_rc"
+    fi
+    if command -v nkp &>/dev/null && nkp completion zsh &>/dev/null; then
+      echo "if command -v nkp &>/dev/null; then source <(nkp completion zsh 2>/dev/null); fi" >> "$shell_rc"
+    fi
+  fi
+
+  echo "# --- end NKP Scripts ---" >> "$shell_rc"
+  log_info "Shell completion and alias k=kubectl configured in $shell_rc (reopen shell or source the file to use)"
 }
 
 # --- Version verification ---
@@ -656,7 +728,7 @@ do_uninstall_kubectl() {
   [[ "$UNINSTALL_KUBECTL" != true ]] && return 0
   log_info "Uninstalling kubectl..."
   if [[ -f "$INSTALL_BIN_DIR/kubectl" ]]; then
-    run sudo rm -f "$INSTALL_BIN_DIR/kubectl"
+    [[ "$INSTALL_USE_SUDO" == true ]] && run sudo rm -f "$INSTALL_BIN_DIR/kubectl" || run rm -f "$INSTALL_BIN_DIR/kubectl"
     log_info "Removed $INSTALL_BIN_DIR/kubectl"
   else
     log_info "kubectl not found at $INSTALL_BIN_DIR/kubectl (may be from another install)."
@@ -667,7 +739,7 @@ do_uninstall_helm() {
   [[ "$UNINSTALL_HELM" != true ]] && return 0
   log_info "Uninstalling Helm..."
   if [[ -f "$INSTALL_BIN_DIR/helm" ]]; then
-    run sudo rm -f "$INSTALL_BIN_DIR/helm"
+    [[ "$INSTALL_USE_SUDO" == true ]] && run sudo rm -f "$INSTALL_BIN_DIR/helm" || run rm -f "$INSTALL_BIN_DIR/helm"
     log_info "Removed $INSTALL_BIN_DIR/helm"
   else
     log_info "Helm not found at $INSTALL_BIN_DIR/helm (may be from another install)."
@@ -684,7 +756,7 @@ do_uninstall_nkp() {
     nkp delete bootstrap 2>/dev/null || true
   fi
   if [[ -f "$INSTALL_BIN_DIR/nkp" ]]; then
-    run sudo rm -f "$INSTALL_BIN_DIR/nkp"
+    [[ "$INSTALL_USE_SUDO" == true ]] && run sudo rm -f "$INSTALL_BIN_DIR/nkp" || run rm -f "$INSTALL_BIN_DIR/nkp"
     log_info "Removed $INSTALL_BIN_DIR/nkp"
   else
     log_info "NKP not found at $INSTALL_BIN_DIR/nkp (may be from another install)."

@@ -20,8 +20,8 @@ After installation, the script verifies each component and reports versions. Opt
 
 ## Supported platforms
 
-- **Linux**: Debian/Ubuntu (apt), RHEL/CentOS/Rocky/Alma (dnf/yum), Fedora
-- **macOS**: Intel (amd64) and Apple Silicon (arm64); uses Homebrew for Docker, direct downloads for kubectl/Helm
+- **Linux**: Debian/Ubuntu (apt), RHEL/CentOS/Rocky/Alma (dnf/yum), Fedora — Docker from official distro repos; other distros use the [get.docker.com](https://get.docker.com) script
+- **macOS**: Intel (amd64) and Apple Silicon (arm64); Docker via **Homebrew** (`brew install --cask docker`); Helm via Homebrew when available, else [get-helm-4](https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4); kubectl via direct download
 - **Architectures**: amd64 (x86_64), arm64 (aarch64)
 
 ## Requirements
@@ -147,9 +147,12 @@ If any requested component is missing from `PATH`, the script exits with a non-z
 
 All operations are logged to stderr and to a log file. The default log file is in the system temp directory (`$TMPDIR` on macOS, `/tmp` on Linux) as `install-nkp-deps.<pid>.log`. Override with `--log-file PATH`.
 
-## Post-install (Linux)
+## Post-install
 
-If the script adds your user to the `docker` group, **log out and back in** (or run `newgrp docker`) so you can run `docker` without `sudo`.
+- **Shell completions and alias:** The script adds to your `~/.bashrc` or `~/.zshrc`:
+  - **Alias** `k=kubectl` (e.g. `k get pods`)
+  - **Completions** for kubectl, Helm, Docker, and NKP (when supported). Reopen your terminal or run `source ~/.bashrc` / `source ~/.zshrc` to use them.
+- **Linux (Docker):** If the script adds your user to the `docker` group, **log out and back in** (or run `newgrp docker`) so you can run `docker` without `sudo`.
 
 ## Contributing
 
