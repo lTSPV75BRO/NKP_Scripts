@@ -18,8 +18,9 @@
 set -euo pipefail
 
 # --- Configuration ---
+# When run via "curl | bash", BASH_SOURCE[0] is unset; use $0 so SCRIPT_DIR is current directory
 readonly SCRIPT_NAME="${0##*/}"
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 LOG_FILE="${TMPDIR:-/tmp}/install-nkp-deps.$$.log"
 readonly KUBECTL_STABLE_URL="https://dl.k8s.io/release/stable.txt"
 readonly KUBECTL_BASE_URL="https://dl.k8s.io/release"
@@ -269,11 +270,12 @@ install_docker_linux() {
     debian)
       run sudo apt-get install -y -qq software-properties-common
       run sudo install -m 0755 -d /etc/apt/keyrings
-      local docker_repo_id
+      local docker_repo_id codename
       docker_repo_id=$( (. /etc/os-release && echo "$ID") || echo "ubuntu")
+      # Remove any existing Docker list to avoid Signed-By conflict (e.g. docker.gpg vs docker.asc)
+      run sudo rm -f /etc/apt/sources.list.d/docker.list
       run curl -fsSL "https://download.docker.com/linux/${docker_repo_id}/gpg" | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
       run sudo chmod a+r /etc/apt/keyrings/docker.gpg
-      local codename
       codename=$(lsb_release -cs 2>/dev/null || (. /etc/os-release && echo "${VERSION_CODENAME:-unknown}"))
       echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${docker_repo_id} ${codename} stable" | run sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
       run sudo apt-get update -qq
