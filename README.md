@@ -3,18 +3,21 @@
 Production-ready, cross-platform script to install and uninstall dependencies for **Nutanix Kubernetes Provisioning (NKP)** on Linux and macOS. One script handles both install and uninstall (with `--uninstall`).
 
 **Quick start (run from GitHub):**
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lTSPV75BRO/NKP_Scripts/main/install-nkp-deps.sh | bash
 ```
 
 ## What it installs
 
-| Component | Purpose |
-|-----------|---------|
-| **Docker** | Container runtime for NKP |
-| **kubectl** | Kubernetes CLI (stable release) |
-| **Helm** | Kubernetes package manager |
+
+| Component   | Purpose                                 |
+| ----------- | --------------------------------------- |
+| **Docker**  | Container runtime for NKP               |
+| **kubectl** | Kubernetes CLI (stable release)         |
+| **Helm**    | Kubernetes package manager              |
 | **NKP CLI** | Nutanix NKP tool (from URL you provide) |
+
 
 After installation, the script verifies each component and reports versions. Optional minimum-version checks can warn if versions are below recommended levels.
 
@@ -39,7 +42,7 @@ You can run the installer without cloning the repo:
 curl -fsSL https://raw.githubusercontent.com/lTSPV75BRO/NKP_Scripts/main/install-nkp-deps.sh | bash
 ```
 
-To pass options to the script, use **`bash -s --`** (note the space and double dash), then the script options:
+To pass options to the script, use `**bash -s --**` (note the space and double dash), then the script options:
 
 ```bash
 # Show help (must use "bash -s -- --help", not "bash -s --help")
@@ -97,38 +100,44 @@ Uninstall is built into the same script. Use `--uninstall`; with no component fl
 
 You can also run `./uninstall-nkp-deps.sh` (wrapper that calls `install-nkp-deps.sh --uninstall`).
 
-| Option (with `--uninstall`) | Component |
-|-----------------------------|-----------|
-| `--docker`  | Docker (package/cask removal on Linux/macOS) |
-| `--kubectl` | kubectl binary (from install script location) |
-| `--helm`    | Helm binary |
-| `--nkp`     | NKP CLI binary |
-| `--all`     | All four components |
+
+| Option (with `--uninstall`) | Component                                     |
+| --------------------------- | --------------------------------------------- |
+| `--docker`                  | Docker (package/cask removal on Linux/macOS)  |
+| `--kubectl`                 | kubectl binary (from install script location) |
+| `--helm`                    | Helm binary                                   |
+| `--nkp`                     | NKP CLI binary                                |
+| `--all`                     | All four components                           |
+
 
 ### Install script options
 
-| Option | Description |
-|--------|-------------|
-| `--skip-docker` | Do not install or start Docker |
-| `--skip-kubectl` | Do not install kubectl |
-| `--skip-helm` | Do not install Helm |
-| `--skip-nkp` | Do not install NKP CLI |
-| `--nkp-url URL` | NKP download URL (avoids prompt) |
-| `--dry-run` | Log actions only; do not install |
-| `--verify-only` | Only run version checks; do not install |
+
+| Option            | Description                                     |
+| ----------------- | ----------------------------------------------- |
+| `--skip-docker`   | Do not install or start Docker                  |
+| `--skip-kubectl`  | Do not install kubectl                          |
+| `--skip-helm`     | Do not install Helm                             |
+| `--skip-nkp`      | Do not install NKP CLI                          |
+| `--nkp-url URL`   | NKP download URL (avoids prompt)                |
+| `--dry-run`       | Log actions only; do not install                |
+| `--verify-only`   | Only run version checks; do not install         |
 | `--log-file PATH` | Log file path (default: `install-nkp-deps.log`) |
-| `-h`, `--help` | Show help |
+| `-h`, `--help`    | Show help                                       |
+
 
 ## NKP URL and file naming
 
 Obtain the NKP CLI download URL from the Nutanix support portal or your Nutanix representative. Expected tarball names:
 
-| Platform | Example filename |
-|----------|------------------|
-| Linux (amd64) | `nkp_v2.17.0_linux_amd64.tar.gz` |
-| Linux (arm64) | `nkp_v2.17.0_linux_arm64.tar.gz` |
-| macOS (Intel) | `nkp_v2.17.0_darwin_amd64.tar.gz` |
+
+| Platform              | Example filename                  |
+| --------------------- | --------------------------------- |
+| Linux (amd64)         | `nkp_v2.17.0_linux_amd64.tar.gz`  |
+| Linux (arm64)         | `nkp_v2.17.0_linux_arm64.tar.gz`  |
+| macOS (Intel)         | `nkp_v2.17.0_darwin_amd64.tar.gz` |
 | macOS (Apple Silicon) | `nkp_v2.17.0_darwin_arm64.tar.gz` |
+
 
 The script supports:
 
@@ -155,6 +164,7 @@ All operations are logged to stderr and to a log file. The default log file is i
 - **Shell completions and alias:** The script adds to your `~/.bashrc` or `~/.zshrc`:
   - **Alias** `k=kubectl` (e.g. `k get pods`)
   - **Completions** for kubectl, Helm, Docker, and NKP (when supported). Reopen your terminal or run `source ~/.bashrc` / `source ~/.zshrc` to use them.
+- `**k` or `kubectl` says "No such file or directory":** Your shell may be using a cached path to an old binary (e.g. one that was in `~/.local/bin`). Run `hash -r` (bash) or `rehash` (zsh), or open a new terminal. New installs add a hash clear so this is less likely.
 - **Linux (Docker):** If the script adds your user to the `docker` group, **log out and back in** (or run `newgrp docker`) so you can run `docker` without `sudo`.
 
 ## Contributing

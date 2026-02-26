@@ -63,12 +63,26 @@ log_info()  { log "INFO" "$@"; }
 log_warn()  { log "WARN" "$@"; }
 log_error() { log "ERROR" "$@"; }
 
+# Redact URLs in command args for logging (NKP URLs may contain tokens)
+redact_cmd_for_log() {
+  local first=1 arg
+  for arg in "$@"; do
+    [[ "$first" -eq 0 ]] && echo -n " "
+    if [[ "$arg" == https://* || "$arg" == http://* ]]; then
+      echo -n "<url-redacted>"
+    else
+      printf '%s' "$arg"
+    fi
+    first=0
+  done
+}
+
 run() {
   if [[ "$DRY_RUN" == true ]]; then
     log_info "[DRY-RUN] $*"
     return 0
   fi
-  log_info "Running: $*"
+  log_info "Running: $(redact_cmd_for_log "$@")"
   "$@"
 }
 
@@ -480,7 +494,8 @@ install_nkp() {
     fi
   fi
 
-  log_info "Downloading NKP from: $url"
+  # Redact URL in log (query string may contain tokens)
+  log_info "Downloading NKP from: $(echo "$url" | sed -e 's/[?].*/?***/')"
   local tmpdir
   tmpdir=$(mktemp -d)
 
@@ -523,6 +538,11 @@ install_nkp() {
   fi
   rm -rf "$tmpdir"
   log_info "NKP installed to $INSTALL_BIN_DIR/nkp"
+  if [[ -n "${url_ver:-}" ]]; then
+    log_info "Download NKP OS version ${url_ver} from https://portal.nutanix.com/page/downloads?product=nkp and import the image to your Prism Central"
+  else
+    log_info "Download NKP OS (same version as NKP CLI) from https://portal.nutanix.com/page/downloads?product=nkp and import the image to your Prism Central"
+  fi
 }
 
 # --- Shell completion and alias (k=kubectl) ---
@@ -544,13 +564,17 @@ configure_completion() {
 
   echo "" >> "$shell_rc"
   echo "# --- NKP Scripts - completions and alias (added by install-nkp-deps.sh) ---" >> "$shell_rc"
+  # Clear command hash so kubectl/k are resolved from current PATH (avoids stale path to removed binary)
+  if [[ "$shell_name" == bash ]]; then
+    echo "hash -r 2>/dev/null || true" >> "$shell_rc"
+  else
+    echo "rehash 2>/dev/null || true" >> "$shell_rc"
+  fi
 
   if [[ "$shell_name" == bash ]]; then
-    # kubectl + alias k=kubectl
+    # kubectl: source completion, alias k, and register completion for k only if __start_kubectl exists (avoids "function not found")
     if command -v kubectl &>/dev/null; then
-      echo "if command -v kubectl &>/dev/null; then source <(kubectl completion bash 2>/dev/null); fi" >> "$shell_rc"
-      echo "alias k=kubectl" >> "$shell_rc"
-      echo "complete -o default -F __start_kubectl k 2>/dev/null || true" >> "$shell_rc"
+      echo "if command -v kubectl &>/dev/null; then source <(kubectl completion bash 2>/dev/null) 2>/dev/null; alias k=kubectl; declare -f __start_kubectl &>/dev/null && complete -o default -F __start_kubectl k 2>/dev/null || true; fi" >> "$shell_rc"
     fi
     # helm
     if command -v helm &>/dev/null; then
@@ -859,6 +883,7 @@ main() {
     shift
   done
 
+  [[ -z "${LOG_FILE:-}" ]] && LOG_FILE="${TMPDIR:-/tmp}/install-nkp-deps.$$.log"
   : > "$LOG_FILE"
 
   if [[ "$UNINSTALL_MODE" == true ]]; then
