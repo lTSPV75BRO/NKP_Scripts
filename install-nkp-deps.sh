@@ -268,17 +268,26 @@ readonly DOCKER_GET_SCRIPT_URL="https://get.docker.com"
 install_docker_linux() {
   case "$OS_DISTRO" in
     debian)
-      run sudo apt-get install -y -qq software-properties-common
+      run sudo apt-get update -qq
+      run sudo apt-get install -y -qq ca-certificates curl
       run sudo install -m 0755 -d /etc/apt/keyrings
-      local docker_repo_id codename
+      local docker_repo_id suite
       docker_repo_id=$( (. /etc/os-release && echo "$ID") || echo "ubuntu")
-      # Remove all Docker list and key files to avoid Signed-By conflict (docker.gpg vs docker.asc)
-      run sudo rm -f /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.list.* 2>/dev/null || true
-      run sudo rm -f /etc/apt/keyrings/docker.gpg /etc/apt/keyrings/docker.asc 2>/dev/null || true
-      run curl -fsSL "https://download.docker.com/linux/${docker_repo_id}/gpg" | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-      run sudo chmod a+r /etc/apt/keyrings/docker.gpg
-      codename=$(lsb_release -cs 2>/dev/null || (. /etc/os-release && echo "${VERSION_CODENAME:-unknown}"))
-      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${docker_repo_id} ${codename} stable" | run sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+      # Remove all Docker keys and sources to avoid Signed-By conflict
+      run sudo rm -f /etc/apt/keyrings/docker.asc /etc/apt/keyrings/docker.gpg
+      run sudo rm -f /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker*.list /etc/apt/sources.list.d/*docker* 2>/dev/null || true
+      # Add Docker's official GPG key (ASCII armored, as docker.asc)
+      run sudo curl -fsSL "https://download.docker.com/linux/${docker_repo_id}/gpg" -o /etc/apt/keyrings/docker.asc
+      run sudo chmod a+r /etc/apt/keyrings/docker.asc
+      # Add repository using DEB822 format (.sources)
+      suite=$( (. /etc/os-release && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-unknown}}") || echo "unknown")
+      run sudo tee /etc/apt/sources.list.d/docker.sources > /dev/null <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/${docker_repo_id}
+Suites: ${suite}
+Components: stable
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
       run sudo apt-get update -qq
       run sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io
       ;;

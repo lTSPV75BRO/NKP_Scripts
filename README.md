@@ -161,6 +161,10 @@ All operations are logged to stderr and to a log file. The default log file is i
 
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for how to report issues, suggest changes, and submit pull requests.
 
+## Testing
+
+To test the script on different OSes (Ubuntu, Debian, RHEL/Fedora, macOS) and in CI, see [TESTING.md](TESTING.md). It includes a test matrix, quick commands (`--help`, `--dry-run`, `--verify-only`), and a manual checklist.
+
 ## License
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for the full text. You may use, modify, and distribute it under those terms.

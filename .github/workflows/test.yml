@@ -1,0 +1,57 @@
+# Test install-nkp-deps.sh on multiple OSes (--help and --dry-run only; no full install).
+name: Test script
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-help-and-dryrun:
+    name: "${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run --help
+        run: |
+          bash install-nkp-deps.sh --help
+          echo "---"
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install-nkp-deps.sh | bash -s -- --help
+
+      - name: Run --dry-run (skip NKP to avoid prompt)
+        run: |
+          bash install-nkp-deps.sh --dry-run --skip-docker --skip-kubectl --skip-helm --skip-nkp
+          echo "---"
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install-nkp-deps.sh | bash -s -- --dry-run --skip-docker --skip-kubectl --skip-helm --skip-nkp
+
+  test-linux-distros:
+    name: "Linux (${{ matrix.distro }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [debian, fedora]
+    container:
+      image: ${{ matrix.distro }}:latest
+    steps:
+      - name: Install curl and fetch script
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y -qq curl ca-certificates
+          else
+            dnf install -y -q curl ca-certificates
+          fi
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install-nkp-deps.sh -o /tmp/install-nkp-deps.sh
+      - name: Run --help
+        run: bash /tmp/install-nkp-deps.sh --help
+
+      - name: Run --dry-run
+        run: |
+          bash /tmp/install-nkp-deps.sh --dry-run --skip-docker --skip-kubectl --skip-helm --skip-nkp
