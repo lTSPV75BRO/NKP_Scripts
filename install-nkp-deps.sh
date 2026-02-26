@@ -262,7 +262,7 @@ install_prereqs() {
   case "$OS_DISTRO" in
     debian)
       run sudo apt-get update -qq
-      run sudo apt-get install -y -qq curl wget ca-certificates tar git apt-transport-https gnupg lsb-release || {
+      run sudo apt-get install -y -qq curl wget ca-certificates tar git bash-completion apt-transport-https gnupg lsb-release || {
         if ! command -v curl &>/dev/null; then
           log_error "curl is required but could not be installed. Fix apt sources or install curl manually."
           exit 1
@@ -272,7 +272,7 @@ install_prereqs() {
       ;;
     rhel|fedora)
       set +e
-      run sudo dnf install -y curl wget ca-certificates tar git 2>/dev/null || run sudo yum install -y curl wget ca-certificates tar git 2>/dev/null
+      run sudo dnf install -y curl wget ca-certificates tar git bash-completion 2>/dev/null || run sudo yum install -y curl wget ca-certificates tar git bash-completion 2>/dev/null
       set -e
       if ! command -v curl &>/dev/null; then
         log_error "Prerequisites could not be installed (curl missing). Repository/mirrorlist is likely unreachable (e.g. 'No URLs in mirrorlist'). Fix /etc/yum.repos.d/ or mirrorlist so 'dnf install -y curl wget ca-certificates tar git' succeeds, then re-run this script."
@@ -626,6 +626,8 @@ configure_completion() {
   # Clear command hash so kubectl/k are resolved from current PATH (avoids stale path to removed binary)
   if [[ "$shell_name" == bash ]]; then
     echo "hash -r 2>/dev/null || true" >> "$shell_rc"
+    # Load system bash-completion so _get_comp_words_by_ref etc. exist (kubectl/helm/nkp completion depend on it)
+    echo "[ -f /usr/share/bash-completion/bash_completion ] && . /usr/share/bash-completion/bash_completion 2>/dev/null || true" >> "$shell_rc"
   else
     echo "rehash 2>/dev/null || true" >> "$shell_rc"
   fi

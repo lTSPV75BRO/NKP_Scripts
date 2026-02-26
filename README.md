@@ -181,7 +181,8 @@ All operations are logged to stderr and to a log file. The default log file is i
 
 ## Post-install
 
-- **Shell completions and alias:** The script adds a small block to your `~/.bashrc` or `~/.zshrc` only for tools that don’t already have completion in the file (idempotent). If your config already sources e.g. kubectl/helm/docker completion (oh-my-zsh plugins, etc.), those lines are skipped; only missing ones (e.g. NKP) are added. Bash also gets alias `k=kubectl` when kubectl completion is added. Reopen your terminal or run `source ~/.bashrc` / `source ~/.zshrc` to use them.
+- **Shell completions and alias:** The script adds a small block to your `~/.bashrc` or `~/.zshrc` only for tools that don’t already have completion in the file (idempotent). It also ensures the system `bash-completion` package is loaded so `_get_comp_words_by_ref` is defined. Bash also gets alias `k=kubectl` when kubectl completion is added. Reopen your terminal or run `source ~/.bashrc` / `source ~/.zshrc` to use them.
+- **`_get_comp_words_by_ref: command not found` when running `nkp` / `k` / `helm`:** Install the bash-completion package (`sudo dnf install -y bash-completion` or `sudo apt install -y bash-completion`) and ensure your NKP Scripts block in `~/.bashrc` includes a line that sources it, e.g. `[ -f /usr/share/bash-completion/bash_completion ] && . /usr/share/bash-completion/bash_completion`. Re-run the installer to get the updated block, or add that line above the completion block in `~/.bashrc`.
 - **`k` or `kubectl` says "No such file or directory":** Your shell may be using a cached path to an old binary (e.g. one that was in `~/.local/bin`). Run `hash -r` (bash) or `rehash` (zsh), or open a new terminal. New installs add a hash clear so this is less likely.
 - **Linux (Docker):** If the script adds your user to the `docker` group, **log out and back in** (or run `newgrp docker`) so you can run `docker` without `sudo`.
 
