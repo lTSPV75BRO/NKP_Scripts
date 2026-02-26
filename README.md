@@ -29,7 +29,7 @@ After installation, the script verifies each component and reports versions. Opt
 
 ## Requirements
 
-- **Linux**: `sudo` and one of apt, dnf, or yum; curl and wget are installed if missing
+- **Linux**: `sudo` and one of apt, dnf, or yum. The script tries to install curl and wget; if the package manager fails (e.g. "No URLs in mirrorlist" on RHEL/Rocky), it continues when curl is already available.
 - **macOS**: [Homebrew](https://brew.sh) (for Docker); curl is built-in
 
 ## Usage

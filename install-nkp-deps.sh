@@ -262,13 +262,32 @@ install_prereqs() {
   case "$OS_DISTRO" in
     debian)
       run sudo apt-get update -qq
-      run sudo apt-get install -y -qq curl wget ca-certificates apt-transport-https gnupg lsb-release
+      run sudo apt-get install -y -qq curl wget ca-certificates apt-transport-https gnupg lsb-release || {
+        if ! command -v curl &>/dev/null; then
+          log_error "curl is required but could not be installed. Fix apt sources or install curl manually."
+          exit 1
+        fi
+        log_warn "apt install failed; continuing with existing curl."
+      }
       ;;
     rhel|fedora)
-      run sudo dnf install -y curl wget ca-certificates 2>/dev/null || run sudo yum install -y curl wget ca-certificates
+      set +e
+      run sudo dnf install -y curl wget ca-certificates 2>/dev/null || run sudo yum install -y curl wget ca-certificates 2>/dev/null
+      set -e
+      if ! command -v curl &>/dev/null; then
+        log_error "curl is required but could not be installed. Fix repository/mirrorlist (e.g. 'No URLs in mirrorlist') or install curl manually."
+        exit 1
+      fi
+      if ! command -v wget &>/dev/null; then
+        log_warn "wget could not be installed (repo/mirrorlist issue); script will use curl only."
+      fi
       ;;
     *)
       log_warn "Unknown Linux distro; ensure curl and wget are installed."
+      if ! command -v curl &>/dev/null; then
+        log_error "curl is required. Install it manually and re-run."
+        exit 1
+      fi
       ;;
   esac
 }
