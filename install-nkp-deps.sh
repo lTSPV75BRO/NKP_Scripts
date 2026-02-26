@@ -628,6 +628,8 @@ configure_completion() {
     echo "hash -r 2>/dev/null || true" >> "$shell_rc"
     # Load system bash-completion so _get_comp_words_by_ref etc. exist (kubectl/helm/nkp completion depend on it)
     echo "[ -f /usr/share/bash-completion/bash_completion ] && . /usr/share/bash-completion/bash_completion 2>/dev/null || true" >> "$shell_rc"
+    # Fallback stub if bash-completion not installed (avoids '_get_comp_words_by_ref: command not found')
+    echo "type _get_comp_words_by_ref &>/dev/null || function _get_comp_words_by_ref { :; }" >> "$shell_rc"
   else
     echo "rehash 2>/dev/null || true" >> "$shell_rc"
   fi
