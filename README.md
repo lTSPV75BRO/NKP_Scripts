@@ -32,6 +32,24 @@ After installation, the script verifies each component and reports versions. Opt
 - **Linux**: `sudo` and one of apt, dnf, or yum. The script installs curl, wget, tar, git (and ca-certificates). If the package manager fails (e.g. "No URLs in mirrorlist"), fix repos or install these tools manually. Docker install must succeed or the script exits.
 - **macOS**: [Homebrew](https://brew.sh) (for Docker); curl is built-in
 
+### Fixing "No URLs in mirrorlist" (Rocky / RHEL / Alma)
+
+If the installer fails with **No URLs in mirrorlist** (baseos/appstream unreachable), fix the repo files then re-run:
+
+```bash
+# Backup repo directory
+sudo cp -r /etc/yum.repos.d /etc/yum.repos.d.bak
+
+# Rocky Linux: comment mirrorlist and use baseurl (use lowercase rocky*.repo)
+sudo sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/rocky*.repo
+sudo sed -i 's/^#baseurl/baseurl/g' /etc/yum.repos.d/rocky*.repo
+
+# Refresh cache
+sudo dnf clean all && sudo dnf makecache
+```
+
+Then run the installer again.
+
 ## Usage
 
 ### Run directly from GitHub

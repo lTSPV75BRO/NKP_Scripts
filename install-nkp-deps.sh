@@ -275,15 +275,18 @@ install_prereqs() {
       run sudo dnf install -y curl wget ca-certificates tar git 2>/dev/null || run sudo yum install -y curl wget ca-certificates tar git 2>/dev/null
       set -e
       if ! command -v curl &>/dev/null; then
-        log_error "curl is required but could not be installed. Fix repository/mirrorlist (e.g. 'No URLs in mirrorlist') or install curl manually."
+        log_error "Prerequisites could not be installed (curl missing). Repository/mirrorlist is likely unreachable (e.g. 'No URLs in mirrorlist'). Fix /etc/yum.repos.d/ or mirrorlist so 'dnf install -y curl wget ca-certificates tar git' succeeds, then re-run this script."
         exit 1
       fi
       if ! command -v tar &>/dev/null; then
-        log_error "tar is required for Helm install but could not be installed. Fix repository/mirrorlist or install tar manually."
+        log_error "Prerequisites could not be installed (tar missing). Repository/mirrorlist is likely unreachable (e.g. 'No URLs in mirrorlist'). Fix /etc/yum.repos.d/ or mirrorlist so 'dnf install -y curl wget ca-certificates tar git' succeeds, then re-run this script."
         exit 1
       fi
       if ! command -v wget &>/dev/null; then
         log_warn "wget could not be installed (repo/mirrorlist issue); script will use curl only."
+      fi
+      if ! command -v git &>/dev/null; then
+        log_warn "git could not be installed (repo/mirrorlist issue); Helm plugin install may be limited."
       fi
       ;;
     *)
