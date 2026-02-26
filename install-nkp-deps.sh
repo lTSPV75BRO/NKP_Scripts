@@ -262,7 +262,7 @@ install_prereqs() {
   case "$OS_DISTRO" in
     debian)
       run sudo apt-get update -qq
-      run sudo apt-get install -y -qq curl wget ca-certificates apt-transport-https gnupg lsb-release || {
+      run sudo apt-get install -y -qq curl wget ca-certificates tar git apt-transport-https gnupg lsb-release || {
         if ! command -v curl &>/dev/null; then
           log_error "curl is required but could not be installed. Fix apt sources or install curl manually."
           exit 1
@@ -272,10 +272,14 @@ install_prereqs() {
       ;;
     rhel|fedora)
       set +e
-      run sudo dnf install -y curl wget ca-certificates 2>/dev/null || run sudo yum install -y curl wget ca-certificates 2>/dev/null
+      run sudo dnf install -y curl wget ca-certificates tar git 2>/dev/null || run sudo yum install -y curl wget ca-certificates tar git 2>/dev/null
       set -e
       if ! command -v curl &>/dev/null; then
         log_error "curl is required but could not be installed. Fix repository/mirrorlist (e.g. 'No URLs in mirrorlist') or install curl manually."
+        exit 1
+      fi
+      if ! command -v tar &>/dev/null; then
+        log_error "tar is required for Helm install but could not be installed. Fix repository/mirrorlist or install tar manually."
         exit 1
       fi
       if ! command -v wget &>/dev/null; then
@@ -337,8 +341,7 @@ EOF
       set -e
       if [[ $docker_install_ok -ne 0 ]]; then
         log_error "Docker package install failed (often 'No URLs in mirrorlist' — system baseos/appstream repos are unreachable). Fix /etc/yum.repos.d/ or mirrorlist, then run: sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
-        log_info "Skipping Docker for now; continuing with kubectl, Helm, NKP."
-        return 0
+        exit 1
       fi
       if command -v systemctl &>/dev/null; then
         run sudo systemctl enable --now docker 2>/dev/null || true
@@ -352,8 +355,7 @@ EOF
       set -e
       if ! command -v docker &>/dev/null; then
         log_error "Docker install failed (e.g. repo/mirrorlist issue). Install manually: https://docs.docker.com/engine/install/"
-        log_info "Skipping Docker for now; continuing with kubectl, Helm, NKP."
-        return 0
+        exit 1
       fi
       ;;
   esac
