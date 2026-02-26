@@ -325,21 +325,39 @@ EOF
       run sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io
       ;;
     rhel|fedora)
+      # Remove old Docker / Podman / runc (may not be installed)
+      run sudo dnf remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine podman runc 2>/dev/null || true
       run sudo dnf install -y dnf-plugins-core 2>/dev/null || run sudo yum install -y yum-utils
-      run sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo 2>/dev/null || \
-        run sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-      run sudo dnf install -y docker-ce docker-ce-cli containerd.io 2>/dev/null || \
-        run sudo yum install -y docker-ce docker-ce-cli containerd.io
+      run sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo 2>/dev/null || \
+        run sudo yum-config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+      set +e
+      run sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin 2>/dev/null || \
+        run sudo yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin 2>/dev/null
+      local docker_install_ok=$?
+      set -e
+      if [[ $docker_install_ok -ne 0 ]]; then
+        log_error "Docker package install failed (often 'No URLs in mirrorlist' — system baseos/appstream repos are unreachable). Fix /etc/yum.repos.d/ or mirrorlist, then run: sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+        log_info "Skipping Docker for now; continuing with kubectl, Helm, NKP."
+        return 0
+      fi
+      if command -v systemctl &>/dev/null; then
+        run sudo systemctl enable --now docker 2>/dev/null || true
+        run sudo systemctl start docker 2>/dev/null || true
+      fi
       ;;
     *)
       log_info "Using Docker official install script (get.docker.com) for this distro."
-      run bash -c "curl -fsSL $DOCKER_GET_SCRIPT_URL | sudo sh -s --" || {
-        log_error "Docker install failed. Install manually: https://docs.docker.com/engine/install/"
-        exit 1
-      }
+      set +e
+      run bash -c "curl -fsSL $DOCKER_GET_SCRIPT_URL | sudo sh -s --"
+      set -e
+      if ! command -v docker &>/dev/null; then
+        log_error "Docker install failed (e.g. repo/mirrorlist issue). Install manually: https://docs.docker.com/engine/install/"
+        log_info "Skipping Docker for now; continuing with kubectl, Helm, NKP."
+        return 0
+      fi
       ;;
   esac
-  if [[ "$DRY_RUN" != true ]]; then
+  if [[ "$DRY_RUN" != true ]] && command -v docker &>/dev/null; then
     if command -v systemctl &>/dev/null; then
       run sudo systemctl start docker 2>/dev/null || true
       run sudo systemctl enable docker 2>/dev/null || true
@@ -782,8 +800,9 @@ do_uninstall_docker() {
         run sudo apt-get remove -y docker-ce docker-ce-cli containerd.io 2>/dev/null || true
         ;;
       rhel|fedora)
-        run sudo dnf remove -y docker-ce docker-ce-cli containerd.io 2>/dev/null || \
-        run sudo yum remove -y docker-ce docker-ce-cli containerd.io 2>/dev/null || true
+        run sudo dnf remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine podman runc 2>/dev/null || true
+        run sudo dnf remove -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin 2>/dev/null || \
+          run sudo yum remove -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin 2>/dev/null || true
         ;;
       *)
         log_warn "Uninstall Docker manually for this distro."
