@@ -98,6 +98,8 @@ Uninstall is built into the same script. Use `--uninstall`; with no component fl
 ./install-nkp-deps.sh --uninstall --all
 ```
 
+Uninstall also removes the NKP Scripts completion/alias block from `~/.bashrc`/`~/.zshrc` and reminds you to run `hash -r` (bash) or `rehash` (zsh) so uninstalled commands are no longer looked up from cache.
+
 You can also run `./uninstall-nkp-deps.sh` (wrapper that calls `install-nkp-deps.sh --uninstall`).
 
 

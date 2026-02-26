@@ -815,6 +815,30 @@ do_uninstall_nkp() {
   fi
 }
 
+# Remove the NKP Scripts completion/alias block from shell rc so uninstalled commands are not referenced.
+remove_completion_block() {
+  local shell_name shell_rc
+  shell_name=$(basename "${SHELL:-bash}")
+  case "$shell_name" in
+    bash)  shell_rc="${HOME}/.bashrc" ;;
+    zsh)   shell_rc="${HOME}/.zshrc" ;;
+    *)     return 0 ;;
+  esac
+  [[ -z "$shell_rc" || ! -w "$shell_rc" ]] && return 0
+  if ! grep -q "NKP Scripts - completions and alias" "$shell_rc" 2>/dev/null; then
+    return 0
+  fi
+  local tmp
+  tmp=$(mktemp)
+  # Remove lines from start marker through end marker (inclusive)
+  if sed '/# --- NKP Scripts - completions and alias/,/# --- end NKP Scripts ---/d' "$shell_rc" > "$tmp" && mv "$tmp" "$shell_rc"; then
+    log_info "Removed NKP Scripts completion/alias block from $shell_rc"
+  else
+    rm -f "$tmp" 2>/dev/null || true
+    log_warn "Could not update $shell_rc (remove NKP Scripts block manually if needed)."
+  fi
+}
+
 # --- Usage ---
 usage() {
   cat <<EOF
@@ -896,7 +920,9 @@ main() {
     do_uninstall_kubectl
     do_uninstall_helm
     do_uninstall_nkp
+    remove_completion_block
     log_info "Uninstall finished. Log written to $LOG_FILE"
+    log_info "Run 'hash -r' (bash) or 'rehash' (zsh) so uninstalled commands are no longer looked up from cache—or open a new terminal."
     exit 0
   fi
 
