@@ -163,10 +163,8 @@ All operations are logged to stderr and to a log file. The default log file is i
 
 ## Post-install
 
-- **Shell completions and alias:** The script adds to your `~/.bashrc` or `~/.zshrc`:
-  - **Alias** `k=kubectl` (e.g. `k get pods`)
-  - **Completions** for kubectl, Helm, Docker, and NKP (when supported). Reopen your terminal or run `source ~/.bashrc` / `source ~/.zshrc` to use them.
-- `**k` or `kubectl` says "No such file or directory":** Your shell may be using a cached path to an old binary (e.g. one that was in `~/.local/bin`). Run `hash -r` (bash) or `rehash` (zsh), or open a new terminal. New installs add a hash clear so this is less likely.
+- **Shell completions and alias:** The script adds a small block to your `~/.bashrc` or `~/.zshrc` only for tools that don’t already have completion in the file (idempotent). If your config already sources e.g. kubectl/helm/docker completion (oh-my-zsh plugins, etc.), those lines are skipped; only missing ones (e.g. NKP) are added. Bash also gets alias `k=kubectl` when kubectl completion is added. Reopen your terminal or run `source ~/.bashrc` / `source ~/.zshrc` to use them.
+- **`k` or `kubectl` says "No such file or directory":** Your shell may be using a cached path to an old binary (e.g. one that was in `~/.local/bin`). Run `hash -r` (bash) or `rehash` (zsh), or open a new terminal. New installs add a hash clear so this is less likely.
 - **Linux (Docker):** If the script adds your user to the `docker` group, **log out and back in** (or run `newgrp docker`) so you can run `docker` without `sudo`.
 
 ## Contributing

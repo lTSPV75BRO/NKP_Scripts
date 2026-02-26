@@ -546,6 +546,23 @@ install_nkp() {
 }
 
 # --- Shell completion and alias (k=kubectl) ---
+# Return 0 if the given tool's completion is already configured in the rc file (idempotent: skip adding).
+# For zsh, also treats as "already present" when plugins=(...) contains the tool (e.g. oh-my-zsh).
+completion_already_in_file() {
+  local rc="$1"
+  local tool="$2"
+  local shell_name="${3:-}"
+  [[ -f "$rc" ]] || return 1
+  grep -q "${tool} completion" "$rc" 2>/dev/null && return 0
+  if [[ "$shell_name" == zsh ]] && grep -q "plugins=" "$rc" 2>/dev/null; then
+    # Oh-my-zsh (or similar): plugins=(... kubectl helm docker ...) — treat as already configured
+    grep -qE "plugins=[^)]*\b${tool}\b" "$rc" 2>/dev/null && return 0
+    # Multi-line plugins= block: look for tool name as word in the block
+    awk -v t="$tool" '/plugins=[[:space:]]*\(/,/\)/ { if ($0 ~ "(^|[[:space:]])" t "($|[[:space:]])") exit 0 } END { exit 1 }' "$rc" 2>/dev/null && return 0
+  fi
+  return 1
+}
+
 configure_completion() {
   [[ "$DRY_RUN" == true ]] && return 0
   local shell_name shell_rc
@@ -572,41 +589,38 @@ configure_completion() {
   fi
 
   if [[ "$shell_name" == bash ]]; then
-    # kubectl: source completion, alias k, and register completion for k only if __start_kubectl exists (avoids "function not found")
-    if command -v kubectl &>/dev/null; then
+    # Only add completion for each tool if not already present in rc (idempotent).
+    if command -v kubectl &>/dev/null && ! completion_already_in_file "$shell_rc" "kubectl" "$shell_name"; then
       echo "if command -v kubectl &>/dev/null; then source <(kubectl completion bash 2>/dev/null) 2>/dev/null; alias k=kubectl; declare -f __start_kubectl &>/dev/null && complete -o default -F __start_kubectl k 2>/dev/null || true; fi" >> "$shell_rc"
     fi
-    # helm
-    if command -v helm &>/dev/null; then
+    if command -v helm &>/dev/null && ! completion_already_in_file "$shell_rc" "helm" "$shell_name"; then
       echo "if command -v helm &>/dev/null; then source <(helm completion bash 2>/dev/null); fi" >> "$shell_rc"
     fi
-    # docker
-    if command -v docker &>/dev/null; then
+    if command -v docker &>/dev/null && ! completion_already_in_file "$shell_rc" "docker" "$shell_name"; then
       echo "if command -v docker &>/dev/null; then source <(docker completion bash 2>/dev/null); fi" >> "$shell_rc"
     fi
-    # nkp (if completion available)
-    if command -v nkp &>/dev/null && nkp completion bash &>/dev/null; then
+    if command -v nkp &>/dev/null && nkp completion bash &>/dev/null && ! completion_already_in_file "$shell_rc" "nkp" "$shell_name"; then
       echo "if command -v nkp &>/dev/null; then source <(nkp completion bash 2>/dev/null); fi" >> "$shell_rc"
     fi
   else
-    # zsh
-    if command -v kubectl &>/dev/null; then
-      echo "if command -v kubectl &>/dev/null; then source <(kubectl completion zsh 2>/dev/null); fi" >> "$shell_rc"
+    # zsh: only add completion for each tool if not already present (e.g. oh-my-zsh plugins).
+    if command -v kubectl &>/dev/null && ! completion_already_in_file "$shell_rc" "kubectl" "$shell_name"; then
+      echo "command -v kubectl &>/dev/null && source <(kubectl completion zsh 2>/dev/null)" >> "$shell_rc"
       echo "alias k=kubectl" >> "$shell_rc"
     fi
-    if command -v helm &>/dev/null; then
-      echo "if command -v helm &>/dev/null; then source <(helm completion zsh 2>/dev/null); fi" >> "$shell_rc"
+    if command -v helm &>/dev/null && ! completion_already_in_file "$shell_rc" "helm" "$shell_name"; then
+      echo "command -v helm &>/dev/null && source <(helm completion zsh 2>/dev/null)" >> "$shell_rc"
     fi
-    if command -v docker &>/dev/null; then
-      echo "if command -v docker &>/dev/null; then source <(docker completion zsh 2>/dev/null); fi" >> "$shell_rc"
+    if command -v docker &>/dev/null && ! completion_already_in_file "$shell_rc" "docker" "$shell_name"; then
+      echo "command -v docker &>/dev/null && source <(docker completion zsh 2>/dev/null)" >> "$shell_rc"
     fi
-    if command -v nkp &>/dev/null && nkp completion zsh &>/dev/null; then
-      echo "if command -v nkp &>/dev/null; then source <(nkp completion zsh 2>/dev/null); fi" >> "$shell_rc"
+    if command -v nkp &>/dev/null && nkp completion zsh &>/dev/null && ! completion_already_in_file "$shell_rc" "nkp" "$shell_name"; then
+      echo "command -v nkp &>/dev/null && source <(nkp completion zsh 2>/dev/null)" >> "$shell_rc"
     fi
   fi
 
   echo "# --- end NKP Scripts ---" >> "$shell_rc"
-  log_info "Shell completion and alias k=kubectl configured in $shell_rc (reopen shell or source the file to use)"
+  log_info "Shell completion and alias configured in $shell_rc (reopen shell or source the file to use)"
 }
 
 # --- Version verification ---

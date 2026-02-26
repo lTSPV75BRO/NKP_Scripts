@@ -27,9 +27,9 @@ jobs:
 
       - name: Run --dry-run (skip NKP to avoid prompt)
         run: |
-          bash install-nkp-deps.sh --dry-run --skip-docker --skip-kubectl --skip-helm --skip-nkp
+          bash install-nkp-deps.sh --dry-run --skip-nkp
           echo "---"
-          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install-nkp-deps.sh | bash -s -- --dry-run --skip-docker --skip-kubectl --skip-helm --skip-nkp
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install-nkp-deps.sh | bash -s -- --dry-run --skip-nkp
 
   test-linux-distros:
     name: "Linux (${{ matrix.distro }})"
@@ -54,4 +54,4 @@ jobs:
 
       - name: Run --dry-run
         run: |
-          bash /tmp/install-nkp-deps.sh --dry-run --skip-docker --skip-kubectl --skip-helm --skip-nkp
+          bash /tmp/install-nkp-deps.sh --dry-run --skip-nkp
