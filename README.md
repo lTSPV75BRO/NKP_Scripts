@@ -24,7 +24,7 @@ After installation, the script verifies each component and reports versions. Opt
 ## Supported platforms
 
 - **Linux**: Debian/Ubuntu (apt), RHEL/CentOS/Rocky/Alma (dnf/yum), Fedora — Docker from official distro repos; other distros use the [get.docker.com](https://get.docker.com) script
-- **macOS**: Intel (amd64) and Apple Silicon (arm64); Docker via **Homebrew** (`brew install --cask docker`); Helm via Homebrew when available, else [get-helm-4](https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4); kubectl via direct download
+- **macOS**: Intel (amd64) and Apple Silicon (arm64); Docker, kubectl, and Helm via **Homebrew** (`brew install --cask docker`, `brew install kubectl`, `brew install helm`)
 - **Architectures**: amd64 (x86_64), arm64 (aarch64)
 
 ## Requirements

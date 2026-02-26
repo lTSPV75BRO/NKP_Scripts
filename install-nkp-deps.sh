@@ -432,16 +432,21 @@ install_kubectl() {
     return 0
   fi
   log_info "Installing kubectl..."
-  local version
-  version=$(curl -sL "$KUBECTL_STABLE_URL")
-  local url="${KUBECTL_BASE_URL}/${version}/bin/${OS_TYPE}/${ARCH}/kubectl"
-  local tmpdir
-  tmpdir=$(mktemp -d)
-  run curl -sSLo "$tmpdir/kubectl" "$url"
-  run chmod +x "$tmpdir/kubectl"
-  install_binary_to_bindir "$tmpdir/kubectl" "kubectl"
-  rm -rf "$tmpdir"
-  log_info "kubectl installed: $version -> $INSTALL_BIN_DIR/kubectl"
+  if [[ "$OS_TYPE" == darwin ]] && command -v brew &>/dev/null; then
+    run brew install kubectl
+    log_info "kubectl installed via Homebrew -> $(command -v kubectl 2>/dev/null || echo "$INSTALL_BIN_DIR/kubectl")"
+  else
+    local version
+    version=$(curl -sL "$KUBECTL_STABLE_URL")
+    local url="${KUBECTL_BASE_URL}/${version}/bin/${OS_TYPE}/${ARCH}/kubectl"
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    run curl -sSLo "$tmpdir/kubectl" "$url"
+    run chmod +x "$tmpdir/kubectl"
+    install_binary_to_bindir "$tmpdir/kubectl" "kubectl"
+    rm -rf "$tmpdir"
+    log_info "kubectl installed: $version -> $INSTALL_BIN_DIR/kubectl"
+  fi
 }
 
 # --- Helm installation ---
@@ -458,12 +463,14 @@ install_helm() {
   fi
   log_info "Installing Helm..."
   if [[ "$DRY_RUN" == true ]]; then
-    log_info "[DRY-RUN] Would run: curl get-helm-4 | bash or download binary"
+    log_info "[DRY-RUN] Would run: brew install helm (macOS) or get-helm-4 / binary (Linux)"
     return 0
   fi
   if ! command -v helm &>/dev/null; then
-    # On macOS with /opt/homebrew/bin we install without sudo; get-helm-4 may use sudo, so use binary fallback.
-    if [[ "$INSTALL_USE_SUDO" == false ]]; then
+    if [[ "$OS_TYPE" == darwin ]] && command -v brew &>/dev/null; then
+      run brew install helm
+      log_info "Helm installed via Homebrew -> $(command -v helm 2>/dev/null || echo "$INSTALL_BIN_DIR/helm")"
+    elif [[ "$INSTALL_USE_SUDO" == false ]]; then
       log_info "Installing Helm via binary download (no sudo for $INSTALL_BIN_DIR)."
       local version
       version=$(curl -sL https://api.github.com/repos/helm/helm/releases/latest | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
@@ -828,7 +835,9 @@ do_uninstall_docker() {
 do_uninstall_kubectl() {
   [[ "$UNINSTALL_KUBECTL" != true ]] && return 0
   log_info "Uninstalling kubectl..."
-  if [[ -f "$INSTALL_BIN_DIR/kubectl" ]]; then
+  if [[ "$OS_TYPE" == darwin ]] && command -v brew &>/dev/null && brew list kubectl &>/dev/null; then
+    run brew uninstall kubectl 2>/dev/null || log_warn "brew uninstall kubectl failed or was cancelled."
+  elif [[ -f "$INSTALL_BIN_DIR/kubectl" ]]; then
     [[ "$INSTALL_USE_SUDO" == true ]] && run sudo rm -f "$INSTALL_BIN_DIR/kubectl" || run rm -f "$INSTALL_BIN_DIR/kubectl"
     log_info "Removed $INSTALL_BIN_DIR/kubectl"
   else
@@ -843,7 +852,9 @@ do_uninstall_kubectl() {
 do_uninstall_helm() {
   [[ "$UNINSTALL_HELM" != true ]] && return 0
   log_info "Uninstalling Helm..."
-  if [[ -f "$INSTALL_BIN_DIR/helm" ]]; then
+  if [[ "$OS_TYPE" == darwin ]] && command -v brew &>/dev/null && brew list helm &>/dev/null; then
+    run brew uninstall helm 2>/dev/null || log_warn "brew uninstall helm failed or was cancelled."
+  elif [[ -f "$INSTALL_BIN_DIR/helm" ]]; then
     [[ "$INSTALL_USE_SUDO" == true ]] && run sudo rm -f "$INSTALL_BIN_DIR/helm" || run rm -f "$INSTALL_BIN_DIR/helm"
     log_info "Removed $INSTALL_BIN_DIR/helm"
   else
