@@ -11,7 +11,7 @@
 #   macOS:  nkp_v2.17.0_darwin_amd64.tar.gz (or darwin_arm64)
 #
 # Usage: ./install-nkp-deps.sh [OPTIONS]
-#   Install mode (default): --skip-docker, --skip-kubectl, --skip-helm, --skip-nkp, --nkp-url, --dry-run, --verify-only, --log-file
+#   Install mode (default): --skip-docker, --skip-kubectl, --skip-helm, --skip-velero, --skip-nkp, --nkp-url, --dry-run, --verify-only, --log-file
 #   Uninstall mode: --uninstall [--docker] [--kubectl] [--helm] [--nkp] [--all]  (no flags = prompt for which to uninstall)
 #
 
@@ -27,22 +27,60 @@ readonly KUBECTL_BASE_URL="https://dl.k8s.io/release"
 readonly HELM_INSTALL_SCRIPT="https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4"
 
 # Minimum versions (optional checks; set empty to skip)
-MIN_DOCKER_VERSION="20.10"
-MIN_KUBECTL_VERSION="1.24"
+MIN_DOCKER_VERSION="27.4.0"
+MIN_KUBECTL_VERSION="1.34"
 MIN_HELM_VERSION="3.10"
+
+# Pinned versions when using --nkp-version (empty = use latest)
+PINNED_KUBECTL_VERSION=""
+PINNED_HELM_VERSION=""
+
+# --- NKP version → recommended Docker / kubectl / Helm (edit or use --nkp-version) ---
+# Sets MIN_DOCKER_VERSION, MIN_KUBECTL_VERSION, MIN_HELM_VERSION and PINNED_* when matched.
+set_versions_for_nkp() {
+  local nkp_ver="$1"
+  local major_minor
+  major_minor=$(echo "$nkp_ver" | sed -n 's/^\([0-9]*\.[0-9]*\).*/\1/p')
+  case "$major_minor" in
+    2.17)
+      MIN_DOCKER_VERSION="29.0"
+      MIN_KUBECTL_VERSION="1.34"
+      MIN_HELM_VERSION="4.0"
+      PINNED_KUBECTL_VERSION="1.34.4"
+      PINNED_HELM_VERSION="4.1.1"
+      ;;
+    2.16)
+      MIN_DOCKER_VERSION="27.4.0"
+      MIN_KUBECTL_VERSION="1.33"
+      MIN_HELM_VERSION="4.0"
+      PINNED_KUBECTL_VERSION="1.33.9"
+      PINNED_HELM_VERSION="4.1.1"
+      ;;
+    *)
+      log_warn "No version table for NKP $major_minor; using script defaults (latest). Add a case in set_versions_for_nkp() for $major_minor."
+      PINNED_KUBECTL_VERSION=""
+      PINNED_HELM_VERSION=""
+      return 1
+      ;;
+  esac
+  return 0
+}
 
 # --- State ---
 DRY_RUN=false
 SKIP_DOCKER=false
 SKIP_KUBECTL=false
 SKIP_HELM=false
+SKIP_VELERO=false
 SKIP_NKP=false
 NKP_URL=""
+NKP_VERSION_FOR_DEPS=""   # e.g. 2.17 or 2.17.0 → use recommended Docker/kubectl/Helm versions
 VERIFY_ONLY=false
 UNINSTALL_MODE=false
 UNINSTALL_DOCKER=false
 UNINSTALL_KUBECTL=false
 UNINSTALL_HELM=false
+UNINSTALL_VELERO=false
 UNINSTALL_NKP=false
 OS_TYPE=""   # linux | darwin
 OS_DISTRO="" # debian | rhel | fedora | ubuntu | ...
@@ -219,18 +257,40 @@ get_installed_nkp_version() {
   nkp --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | tr -d 'v' || echo ""
 }
 
+get_installed_velero_version() {
+  velero version --client 2>/dev/null | sed -n 's/.*Version: v\([0-9.]*\).*/\1/p;q' || \
+  velero version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 | tr -d 'v' || echo ""
+}
+
+get_latest_velero_version() {
+  curl -sL https://api.github.com/repos/vmware-tanzu/velero/releases/latest 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/' | head -1 | tr -d '[:space:]' || echo ""
+}
+
 # Parse NKP version from URL or filename (e.g. nkp_v2.17.0_darwin_amd64.tar.gz -> 2.17.0)
 parse_nkp_version_from_url() {
   local u="$1"
   echo "$u" | grep -oE 'nkp_v[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/nkp_v//' || echo ""
 }
 
-# Log installed vs latest and return 0 to skip install (already at latest), 1 to proceed.
-# Usage: check_versions_before_install "kubectl" "$installed" "$latest"
+# Return 0 if the given command is in INSTALL_BIN_DIR (default location), 1 otherwise.
+# Used to decide whether to skip install: we only skip when at latest AND in default location.
+command_in_default_location() {
+  local cmd="$1"
+  local path
+  path=$(command -v "$cmd" 2>/dev/null) || true
+  [[ -z "$path" ]] && return 1
+  [[ "$path" == "$INSTALL_BIN_DIR/$cmd" ]] && return 0
+  return 1
+}
+
+# Log installed vs latest and return 0 to skip install (already at latest in default location), 1 to proceed.
+# If optional 4th arg (command name) is set, only skip when the binary is in INSTALL_BIN_DIR; otherwise upgrade by installing to default location.
+# Usage: check_versions_before_install "kubectl" "$installed" "$latest" [ "kubectl" ]
 check_versions_before_install() {
   local name="$1"
   local installed="$2"
   local latest="$3"
+  local cmd="${4:-}"
   installed=$(echo "$installed" | tr -d '[:space:]')
   latest=$(echo "$latest" | tr -d '[:space:]')
   if [[ -n "$installed" ]]; then
@@ -242,8 +302,15 @@ check_versions_before_install() {
     log_info "$name: latest/available=$latest"
   fi
   if [[ -n "$installed" && -n "$latest" ]] && version_gte "$installed" "$latest"; then
-    log_info "$name: already at latest, skipping install."
-    return 0
+    if [[ -z "$cmd" ]]; then
+      log_info "$name: already at latest, skipping install."
+      return 0
+    fi
+    if command_in_default_location "$cmd"; then
+      log_info "$name: already at latest in default location ($INSTALL_BIN_DIR/$cmd), skipping install."
+      return 0
+    fi
+    log_info "$name: at latest but not in default location ($(command -v "$cmd" 2>/dev/null)); installing to $INSTALL_BIN_DIR (upgrade)."
   fi
   return 1
 }
@@ -427,8 +494,9 @@ install_kubectl() {
   local inst_latest latest
   inst_latest=$(get_installed_kubectl_version)
   latest=$(get_latest_kubectl_version)
+  [[ -n "${PINNED_KUBECTL_VERSION:-}" ]] && latest="$PINNED_KUBECTL_VERSION"
   set -e
-  if check_versions_before_install "kubectl" "$inst_latest" "$latest"; then
+  if check_versions_before_install "kubectl" "$inst_latest" "$latest" "kubectl"; then
     return 0
   fi
   log_info "Installing kubectl..."
@@ -437,7 +505,17 @@ install_kubectl() {
     log_info "kubectl installed via Homebrew -> $(command -v kubectl 2>/dev/null || echo "$INSTALL_BIN_DIR/kubectl")"
   else
     local version
-    version=$(curl -sL "$KUBECTL_STABLE_URL")
+    if [[ -n "${PINNED_KUBECTL_VERSION:-}" ]]; then
+      version="v${PINNED_KUBECTL_VERSION}"
+    else
+      version=$(curl -sL "$KUBECTL_STABLE_URL" 2>/dev/null) || true
+      version=$(echo "$version" | tr -d '[:space:]')
+      if [[ -z "$version" || "$version" == *"<!DOCTYPE"* ]]; then
+        version="v1.34.0"
+      elif [[ "$version" != v* ]]; then
+        version="v$version"
+      fi
+    fi
     local url="${KUBECTL_BASE_URL}/${version}/bin/${OS_TYPE}/${ARCH}/kubectl"
     local tmpdir
     tmpdir=$(mktemp -d)
@@ -457,8 +535,9 @@ install_helm() {
   local inst_latest latest
   inst_latest=$(get_installed_helm_version)
   latest=$(get_latest_helm_version)
+  [[ -n "${PINNED_HELM_VERSION:-}" ]] && latest="$PINNED_HELM_VERSION"
   set -e
-  if check_versions_before_install "Helm" "$inst_latest" "$latest"; then
+  if check_versions_before_install "Helm" "$inst_latest" "$latest" "helm"; then
     return 0
   fi
   log_info "Installing Helm..."
@@ -466,15 +545,35 @@ install_helm() {
     log_info "[DRY-RUN] Would run: brew install helm (macOS) or get-helm-4 / binary (Linux)"
     return 0
   fi
-  if ! command -v helm &>/dev/null; then
-    if [[ "$OS_TYPE" == darwin ]] && command -v brew &>/dev/null; then
-      run brew install helm
-      log_info "Helm installed via Homebrew -> $(command -v helm 2>/dev/null || echo "$INSTALL_BIN_DIR/helm")"
-    elif [[ "$INSTALL_USE_SUDO" == false ]]; then
-      log_info "Installing Helm via binary download (no sudo for $INSTALL_BIN_DIR)."
-      local version
-      version=$(curl -sL https://api.github.com/repos/helm/helm/releases/latest | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+  if [[ "$OS_TYPE" == darwin ]] && command -v brew &>/dev/null; then
+    run brew install helm
+    log_info "Helm installed via Homebrew -> $(command -v helm 2>/dev/null || echo "$INSTALL_BIN_DIR/helm")"
+  elif [[ "$INSTALL_USE_SUDO" == false ]]; then
+    log_info "Installing Helm via binary download (no sudo for $INSTALL_BIN_DIR)."
+    local version
+    if [[ -n "${PINNED_HELM_VERSION:-}" ]]; then
+      version="$PINNED_HELM_VERSION"
+    else
+      version=$(curl -sL https://api.github.com/repos/helm/helm/releases/latest 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
       [[ -z "$version" ]] && version="3.13.0"
+    fi
+    local url="https://get.helm.sh/helm-v${version}-${OS_TYPE}-${ARCH}.tar.gz"
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    run curl -sSLo "$tmpdir/helm.tar.gz" "$url"
+    run tar -xzf "$tmpdir/helm.tar.gz" -C "$tmpdir" "${OS_TYPE}-${ARCH}/helm"
+    install_binary_to_bindir "$tmpdir/${OS_TYPE}-${ARCH}/helm" "helm"
+    rm -rf "$tmpdir"
+  else
+    log_info "Installing Helm via get-helm-4 script..."
+    run env HELM_INSTALL_DIR="$INSTALL_BIN_DIR" bash -c "curl -fsSL $HELM_INSTALL_SCRIPT | bash" || {
+      local version
+      if [[ -n "${PINNED_HELM_VERSION:-}" ]]; then
+        version="$PINNED_HELM_VERSION"
+      else
+        version=$(curl -sL https://api.github.com/repos/helm/helm/releases/latest 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+        [[ -z "$version" ]] && version="3.13.0"
+      fi
       local url="https://get.helm.sh/helm-v${version}-${OS_TYPE}-${ARCH}.tar.gz"
       local tmpdir
       tmpdir=$(mktemp -d)
@@ -482,21 +581,58 @@ install_helm() {
       run tar -xzf "$tmpdir/helm.tar.gz" -C "$tmpdir" "${OS_TYPE}-${ARCH}/helm"
       install_binary_to_bindir "$tmpdir/${OS_TYPE}-${ARCH}/helm" "helm"
       rm -rf "$tmpdir"
-    else
-      log_info "Installing Helm via get-helm-4 script..."
-      run env HELM_INSTALL_DIR="$INSTALL_BIN_DIR" bash -c "curl -fsSL $HELM_INSTALL_SCRIPT | bash" || {
-        local version
-        version=$(curl -sL https://api.github.com/repos/helm/helm/releases/latest | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
-        [[ -z "$version" ]] && version="3.13.0"
-        local url="https://get.helm.sh/helm-v${version}-${OS_TYPE}-${ARCH}.tar.gz"
-        local tmpdir
-        tmpdir=$(mktemp -d)
-        run curl -sSLo "$tmpdir/helm.tar.gz" "$url"
-        run tar -xzf "$tmpdir/helm.tar.gz" -C "$tmpdir" "${OS_TYPE}-${ARCH}/helm"
-        install_binary_to_bindir "$tmpdir/${OS_TYPE}-${ARCH}/helm" "helm"
-        rm -rf "$tmpdir"
-      }
+    }
+  fi
+}
+
+# --- Velero installation ---
+# macOS: brew install velero; Linux: download tarball from GitHub releases (https://github.com/vmware-tanzu/velero/releases)
+readonly VELERO_RELEASE_URL="https://api.github.com/repos/vmware-tanzu/velero/releases/latest"
+readonly VELERO_DOWNLOAD_BASE="https://github.com/vmware-tanzu/velero/releases/download"
+
+install_velero() {
+  [[ "$SKIP_VELERO" == true ]] && return 0
+  log_info "Checking Velero version (installed vs latest)..."
+  set +e
+  local inst_latest latest
+  inst_latest=$(get_installed_velero_version)
+  latest=$(get_latest_velero_version)
+  set -e
+  if check_versions_before_install "Velero" "$inst_latest" "$latest" "velero"; then
+    return 0
+  fi
+  log_info "Installing Velero..."
+  if [[ "$DRY_RUN" == true ]]; then
+    log_info "[DRY-RUN] Would run: brew install velero (macOS) or download from GitHub (Linux)"
+    return 0
+  fi
+  if [[ "$OS_TYPE" == darwin ]] && command -v brew &>/dev/null; then
+    run brew install velero
+    log_info "Velero installed via Homebrew -> $(command -v velero 2>/dev/null || echo "$INSTALL_BIN_DIR/velero")"
+  else
+    [[ -z "$latest" ]] && latest="1.17.2"
+    local tag="v${latest}"
+    local tarball="velero-${tag}-${OS_TYPE}-${ARCH}.tar.gz"
+    local url="${VELERO_DOWNLOAD_BASE}/${tag}/${tarball}"
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    run curl -fsSLo "$tmpdir/$tarball" "$url"
+    run tar -xzf "$tmpdir/$tarball" -C "$tmpdir"
+    local velero_bin
+    velero_bin=$(find "$tmpdir" -maxdepth 2 -type f -name 'velero' 2>/dev/null | head -1)
+    if [[ -z "$velero_bin" ]]; then
+      velero_bin="$tmpdir/velero"
     fi
+    if [[ -f "$velero_bin" ]]; then
+      run chmod +x "$velero_bin"
+      install_binary_to_bindir "$velero_bin" "velero"
+    else
+      rm -rf "$tmpdir"
+      log_error "Could not find velero binary in $tarball"
+      exit 1
+    fi
+    rm -rf "$tmpdir"
+    log_info "Velero installed: $tag -> $INSTALL_BIN_DIR/velero"
   fi
 }
 
@@ -538,8 +674,11 @@ install_nkp() {
   if [[ -n "$url_ver" ]]; then
     log_info "NKP: version from URL=$url_ver"
     if [[ -n "$inst_ver" ]] && [[ "$inst_ver" == "$url_ver" ]]; then
-      log_info "NKP: already at requested version, skipping install."
-      return 0
+      if command_in_default_location "nkp"; then
+        log_info "NKP: already at requested version in default location ($INSTALL_BIN_DIR/nkp), skipping install."
+        return 0
+      fi
+      log_info "NKP: at requested version but not in default location ($(command -v nkp 2>/dev/null)); installing to $INSTALL_BIN_DIR (upgrade)."
     fi
   fi
 
@@ -621,7 +760,11 @@ configure_completion() {
     zsh)   shell_rc="${HOME}/.zshrc" ;;
     *)     shell_rc="" ;;
   esac
-  if [[ -z "$shell_rc" || ! -w "$shell_rc" ]]; then return 0; fi
+  [[ -z "$shell_rc" ]] && return 0
+  if [[ -f "$shell_rc" ]] && ! [[ -w "$shell_rc" ]]; then return 0; fi
+  if ! [[ -f "$shell_rc" ]]; then
+    touch "$shell_rc" 2>/dev/null || return 0
+  fi
 
   if grep -q "NKP Scripts - completions and alias" "$shell_rc" 2>/dev/null; then
     log_info "Completions and alias already present in $shell_rc"
@@ -655,6 +798,9 @@ configure_completion() {
     if command -v nkp &>/dev/null && nkp completion bash &>/dev/null && ! completion_already_in_file "$shell_rc" "nkp" "$shell_name"; then
       echo "if command -v nkp &>/dev/null; then source <(nkp completion bash 2>/dev/null); fi" >> "$shell_rc"
     fi
+    if command -v velero &>/dev/null && velero completion bash &>/dev/null && ! completion_already_in_file "$shell_rc" "velero" "$shell_name"; then
+      echo "if command -v velero &>/dev/null; then source <(velero completion bash 2>/dev/null); fi" >> "$shell_rc"
+    fi
   else
     # zsh: only add completion for each tool if not already present (e.g. oh-my-zsh plugins).
     if command -v kubectl &>/dev/null && ! completion_already_in_file "$shell_rc" "kubectl" "$shell_name"; then
@@ -669,6 +815,9 @@ configure_completion() {
     fi
     if command -v nkp &>/dev/null && nkp completion zsh &>/dev/null && ! completion_already_in_file "$shell_rc" "nkp" "$shell_name"; then
       echo "command -v nkp &>/dev/null && source <(nkp completion zsh 2>/dev/null)" >> "$shell_rc"
+    fi
+    if command -v velero &>/dev/null && velero completion zsh &>/dev/null && ! completion_already_in_file "$shell_rc" "velero" "$shell_name"; then
+      echo "command -v velero &>/dev/null && source <(velero completion zsh 2>/dev/null)" >> "$shell_rc"
     fi
   fi
 
@@ -731,6 +880,19 @@ verify_versions() {
     fi
   fi
 
+  if [[ "$SKIP_VELERO" != true ]]; then
+    if command -v velero &>/dev/null; then
+      local v
+      v=$(velero version --client 2>/dev/null | sed -n 's/.*Version: v\([0-9.]*\).*/\1/p;q') || true
+      [[ -z "$v" ]] && v=$(velero version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 | tr -d 'v') || true
+      v=$(echo "$v" | tr -d '[:space:]')
+      log_info "Velero: ${v:-unknown}"
+    else
+      log_error "velero not found in PATH."
+      failed=$((failed + 1))
+    fi
+  fi
+
   if [[ "$SKIP_NKP" != true ]]; then
     if command -v nkp &>/dev/null; then
       local v
@@ -755,10 +917,11 @@ verify_versions() {
 prompt_uninstall_components() {
   echo ""
   echo "Which components do you want to uninstall?"
-  echo "  Enter one or more letters (e.g. k,h,n or docker,kubectl,helm,nkp), or 'all' / 'none':"
+  echo "  Enter one or more letters (e.g. k,h,v,n or docker,kubectl,helm,velero,nkp), or 'all' / 'none':"
   echo "    d = Docker"
   echo "    k = kubectl"
   echo "    h = Helm"
+  echo "    v = Velero"
   echo "    n = NKP CLI"
   echo ""
   printf "Your choice: "
@@ -768,6 +931,7 @@ prompt_uninstall_components() {
   UNINSTALL_DOCKER=false
   UNINSTALL_KUBECTL=false
   UNINSTALL_HELM=false
+  UNINSTALL_VELERO=false
   UNINSTALL_NKP=false
 
   if [[ "$choice" == "none" || -z "$choice" ]]; then
@@ -779,6 +943,7 @@ prompt_uninstall_components() {
     UNINSTALL_DOCKER=true
     UNINSTALL_KUBECTL=true
     UNINSTALL_HELM=true
+    UNINSTALL_VELERO=true
     UNINSTALL_NKP=true
     return
   fi
@@ -789,6 +954,7 @@ prompt_uninstall_components() {
       d) UNINSTALL_DOCKER=true ;;
       k) UNINSTALL_KUBECTL=true ;;
       h) UNINSTALL_HELM=true ;;
+      v) UNINSTALL_VELERO=true ;;
       n) UNINSTALL_NKP=true ;;
       ,) ;;
       *) log_warn "Unknown option ignored: ${choice:$i:1}" ;;
@@ -798,6 +964,7 @@ prompt_uninstall_components() {
   if [[ "$choice" == *docker* ]]; then UNINSTALL_DOCKER=true; fi
   if [[ "$choice" == *kubectl* ]]; then UNINSTALL_KUBECTL=true; fi
   if [[ "$choice" == *helm* ]]; then UNINSTALL_HELM=true; fi
+  if [[ "$choice" == *velero* ]]; then UNINSTALL_VELERO=true; fi
   if [[ "$choice" == *nkp* ]]; then UNINSTALL_NKP=true; fi
 }
 
@@ -866,6 +1033,23 @@ do_uninstall_helm() {
   fi
 }
 
+do_uninstall_velero() {
+  [[ "$UNINSTALL_VELERO" != true ]] && return 0
+  log_info "Uninstalling Velero..."
+  if [[ "$OS_TYPE" == darwin ]] && command -v brew &>/dev/null && brew list velero &>/dev/null; then
+    run brew uninstall velero 2>/dev/null || log_warn "brew uninstall velero failed or was cancelled."
+  elif [[ -f "$INSTALL_BIN_DIR/velero" ]]; then
+    [[ "$INSTALL_USE_SUDO" == true ]] && run sudo rm -f "$INSTALL_BIN_DIR/velero" || run rm -f "$INSTALL_BIN_DIR/velero"
+    log_info "Removed $INSTALL_BIN_DIR/velero"
+  else
+    if command -v velero &>/dev/null; then
+      log_info "Velero not at $INSTALL_BIN_DIR (found at $(command -v velero)); remove manually if desired."
+    else
+      log_info "Velero not found at $INSTALL_BIN_DIR/velero (may be from another install)."
+    fi
+  fi
+}
+
 do_uninstall_nkp() {
   [[ "$UNINSTALL_NKP" != true ]] && return 0
   log_info "Uninstalling NKP CLI..."
@@ -919,14 +1103,16 @@ Usage: $SCRIPT_NAME [OPTIONS]
 Install or uninstall dependencies for Nutanix NKP (Nutanix Kubernetes Provisioning) on Linux or macOS.
 
 INSTALL (default):
-  Installs Docker, kubectl, Helm, and NKP CLI (from URL). Verifies versions after install.
+  Installs Docker, kubectl, Helm, Velero, and NKP CLI (from URL). Verifies versions after install.
 
   Options:
   --skip-docker     Do not install Docker
   --skip-kubectl    Do not install kubectl
   --skip-helm       Do not install Helm
+  --skip-velero     Do not install Velero
   --skip-nkp        Do not install NKP CLI
   --nkp-url URL     NKP download URL (avoids prompt)
+  --nkp-version X.Y Install Docker/kubectl/Helm versions recommended for NKP X.Y (e.g. 2.17). Optional if using --nkp-url (version parsed from URL).
   --dry-run         Show actions only, do not install
   --verify-only     Only verify installed tool versions (no install)
   --log-file PATH   Log file (default: $LOG_FILE)
@@ -939,14 +1125,16 @@ UNINSTALL (--uninstall):
   --docker          Uninstall Docker
   --kubectl         Uninstall kubectl
   --helm            Uninstall Helm
+  --velero          Uninstall Velero
   --nkp             Uninstall NKP CLI
-  --all             Uninstall all four components
+  --all             Uninstall all five components
 
   -h, --help        Show this help
 
 Examples:
   $SCRIPT_NAME
   $SCRIPT_NAME --nkp-url "https://portal.nutanix.com/..."
+  $SCRIPT_NAME --nkp-version 2.17 --nkp-url "https://..."
   $SCRIPT_NAME --skip-docker --dry-run
   $SCRIPT_NAME --uninstall
   $SCRIPT_NAME --uninstall --kubectl --nkp
@@ -962,17 +1150,38 @@ main() {
       --skip-docker)   SKIP_DOCKER=true ;;
       --skip-kubectl)  SKIP_KUBECTL=true ;;
       --skip-helm)     SKIP_HELM=true ;;
+      --skip-velero)   SKIP_VELERO=true ;;
       --skip-nkp)      SKIP_NKP=true ;;
-      --nkp-url)       NKP_URL="${2:-}"; shift 2; continue ;;
+      --nkp-url)
+        if [[ -z "${2:-}" || "$2" == -* ]]; then
+          log_error "Missing value for --nkp-url (e.g. --nkp-url https://...)"
+          usage; exit 1
+        fi
+        NKP_URL="$2"; shift 2; continue
+        ;;
+      --nkp-version)
+        if [[ -z "${2:-}" || "$2" == -* ]]; then
+          log_error "Missing value for --nkp-version (e.g. --nkp-version 2.17)"
+          usage; exit 1
+        fi
+        NKP_VERSION_FOR_DEPS="$2"; shift 2; continue
+        ;;
       --dry-run)       DRY_RUN=true ;;
       --verify-only)   VERIFY_ONLY=true ;;
-      --log-file)      LOG_FILE="${2:-}"; shift 2; continue ;;
+      --log-file)
+        if [[ -z "${2:-}" || "$2" == -* ]]; then
+          log_error "Missing value for --log-file (e.g. --log-file /path/to/log)"
+          usage; exit 1
+        fi
+        LOG_FILE="$2"; shift 2; continue
+        ;;
       --uninstall)     UNINSTALL_MODE=true ;;
       --docker)        UNINSTALL_DOCKER=true ;;
-      --kubectl)        UNINSTALL_KUBECTL=true ;;
+      --kubectl)       UNINSTALL_KUBECTL=true ;;
       --helm)          UNINSTALL_HELM=true ;;
+      --velero)        UNINSTALL_VELERO=true ;;
       --nkp)           UNINSTALL_NKP=true ;;
-      --all)           UNINSTALL_DOCKER=true; UNINSTALL_KUBECTL=true; UNINSTALL_HELM=true; UNINSTALL_NKP=true ;;
+      --all)           UNINSTALL_DOCKER=true; UNINSTALL_KUBECTL=true; UNINSTALL_HELM=true; UNINSTALL_VELERO=true; UNINSTALL_NKP=true ;;
       -h|--help)       usage; exit 0 ;;
       *)               log_error "Unknown option: $1"; usage; exit 1 ;;
     esac
@@ -985,12 +1194,13 @@ main() {
   if [[ "$UNINSTALL_MODE" == true ]]; then
     log_info "Starting NKP dependency uninstaller (OS will be detected)."
     detect_os
-    if [[ "$UNINSTALL_DOCKER" != true && "$UNINSTALL_KUBECTL" != true && "$UNINSTALL_HELM" != true && "$UNINSTALL_NKP" != true ]]; then
+    if [[ "$UNINSTALL_DOCKER" != true && "$UNINSTALL_KUBECTL" != true && "$UNINSTALL_HELM" != true && "$UNINSTALL_VELERO" != true && "$UNINSTALL_NKP" != true ]]; then
       prompt_uninstall_components
     fi
     do_uninstall_docker
     do_uninstall_kubectl
     do_uninstall_helm
+    do_uninstall_velero
     do_uninstall_nkp
     remove_completion_block
     log_info "Uninstall finished. Log written to $LOG_FILE"
@@ -1001,6 +1211,19 @@ main() {
   log_info "Starting NKP dependency installer (OS will be detected)."
   detect_os
 
+  # If --nkp-version set, or NKP URL provided with parseable version, use recommended component versions
+  if [[ -n "${NKP_VERSION_FOR_DEPS:-}" ]]; then
+    if set_versions_for_nkp "$NKP_VERSION_FOR_DEPS"; then
+      log_info "Using versions recommended for NKP ${NKP_VERSION_FOR_DEPS}: Docker>=${MIN_DOCKER_VERSION}, kubectl ${PINNED_KUBECTL_VERSION:-latest}, Helm ${PINNED_HELM_VERSION:-latest}"
+    fi
+  elif [[ -n "${NKP_URL:-}" ]]; then
+    local parsed
+    parsed=$(parse_nkp_version_from_url "$NKP_URL")
+    if [[ -n "$parsed" ]] && set_versions_for_nkp "$parsed"; then
+      log_info "Using versions recommended for NKP ${parsed} (from --nkp-url): Docker>=${MIN_DOCKER_VERSION}, kubectl ${PINNED_KUBECTL_VERSION:-latest}, Helm ${PINNED_HELM_VERSION:-latest}"
+    fi
+  fi
+
   if [[ "$VERIFY_ONLY" == true ]]; then
     verify_versions
     exit $?
@@ -1010,6 +1233,7 @@ main() {
   install_docker
   install_kubectl
   install_helm
+  install_velero
   install_nkp
   configure_completion
 

@@ -16,6 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/lTSPV75BRO/NKP_Scripts/main/install
 | **Docker**  | Container runtime for NKP               |
 | **kubectl** | Kubernetes CLI (stable release)         |
 | **Helm**    | Kubernetes package manager              |
+| **Velero**  | Backup and restore for Kubernetes ([vmware-tanzu/velero](https://github.com/vmware-tanzu/velero)); macOS: Homebrew, Linux: latest release tarball |
 | **NKP CLI** | Nutanix NKP tool (from URL you provide) |
 
 
@@ -24,7 +25,7 @@ After installation, the script verifies each component and reports versions. Opt
 ## Supported platforms
 
 - **Linux**: Debian/Ubuntu (apt), RHEL/CentOS/Rocky/Alma (dnf/yum), Fedora — Docker from official distro repos; other distros use the [get.docker.com](https://get.docker.com) script
-- **macOS**: Intel (amd64) and Apple Silicon (arm64); Docker, kubectl, and Helm via **Homebrew** (`brew install --cask docker`, `brew install kubectl`, `brew install helm`)
+- **macOS**: Intel (amd64) and Apple Silicon (arm64); Docker, kubectl, Helm, and Velero via **Homebrew** (`brew install --cask docker`, `brew install kubectl`, `brew install helm`, `brew install velero`)
 - **Architectures**: amd64 (x86_64), arm64 (aarch64)
 
 ## Requirements
@@ -108,7 +109,7 @@ chmod +x install-nkp-deps.sh
 Uninstall is built into the same script. Use `--uninstall`; with no component flags, it prompts which to remove.
 
 ```bash
-# Interactive: choose which components to uninstall (d/k/h/n or names, or 'all'/'none')
+# Interactive: choose which components to uninstall (d/k/h/v/n or names, or 'all'/'none')
 ./install-nkp-deps.sh --uninstall
 
 # Uninstall specific components (no prompt)
@@ -126,8 +127,9 @@ You can also run `./uninstall-nkp-deps.sh` (wrapper that calls `install-nkp-deps
 | `--docker`                  | Docker (package/cask removal on Linux/macOS)  |
 | `--kubectl`                 | kubectl binary (from install script location) |
 | `--helm`                    | Helm binary                                   |
+| `--velero`                  | Velero binary                                 |
 | `--nkp`                     | NKP CLI binary                                |
-| `--all`                     | All four components                           |
+| `--all`                     | All five components                           |
 
 
 ### Install script options
@@ -138,8 +140,10 @@ You can also run `./uninstall-nkp-deps.sh` (wrapper that calls `install-nkp-deps
 | `--skip-docker`   | Do not install or start Docker                  |
 | `--skip-kubectl`  | Do not install kubectl                          |
 | `--skip-helm`     | Do not install Helm                             |
+| `--skip-velero`   | Do not install Velero                           |
 | `--skip-nkp`      | Do not install NKP CLI                          |
 | `--nkp-url URL`   | NKP download URL (avoids prompt)                |
+| `--nkp-version X.Y` | Use Docker/kubectl/Helm versions recommended for NKP X.Y (e.g. 2.17). Auto-set when using `--nkp-url` if version is in URL. |
 | `--dry-run`       | Log actions only; do not install                |
 | `--verify-only`   | Only run version checks; do not install         |
 | `--log-file PATH` | Log file path (default: `install-nkp-deps.log`) |
@@ -164,13 +168,16 @@ The script supports:
 - **Tarball** (`.tar.gz`): extracts and installs the `nkp` binary from inside (e.g. `nkp_v2.17.0_linux_amd64/nkp`)
 - **Direct binary**: installed as `nkp` in `/usr/local/bin`
 
-## Version verification
+## Version verification and upgrade behavior
+
+If a component is already installed but **not** in the script’s default location (e.g. `kubectl` in `~/.local/bin`), the script still installs or upgrades it into the default location (`/usr/local/bin` on Linux, or `/opt/homebrew/bin` on macOS when using Homebrew). The script only skips installation when the component is already at the target version **and** lives in that default location.
 
 After install, the script prints:
 
 - **Docker** – server version (or client if no daemon)
 - **kubectl** – client version
 - **Helm** – version
+- **Velero** – client version
 - **NKP** – output of `nkp version` or “installed”
 
 If any requested component is missing from `PATH`, the script exits with a non-zero status. Optional minimum versions (Docker ≥ 20.10, kubectl ≥ 1.24, Helm ≥ 3.10) are checked and a warning is printed if below.
