@@ -42,6 +42,13 @@ set_versions_for_nkp() {
   local major_minor
   major_minor=$(echo "$nkp_ver" | sed -n 's/^\([0-9]*\.[0-9]*\).*/\1/p')
   case "$major_minor" in
+    2.18)
+      MIN_DOCKER_VERSION="29.0"
+      MIN_KUBECTL_VERSION="1.35"
+      MIN_HELM_VERSION="4.0"
+      PINNED_KUBECTL_VERSION="1.35.0"
+      PINNED_HELM_VERSION="4.1.1"
+      ;;
     2.17)
       MIN_DOCKER_VERSION="29.0"
       MIN_KUBECTL_VERSION="1.34"
